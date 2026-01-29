@@ -31,6 +31,7 @@ pub fn execute_command(
 ) -> ClaudeResponse {
     let mut args = vec![
         "-p".to_string(),
+        "--dangerously-skip-permissions".to_string(),
         "--output-format".to_string(),
         "json".to_string(),
         "--append-system-prompt".to_string(),
