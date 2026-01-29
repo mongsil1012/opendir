@@ -4,6 +4,17 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+/// Check if a Line is effectively empty (all spans contain only whitespace)
+/// Handles both ASCII and Unicode whitespace characters
+pub fn is_line_empty(line: &Line) -> bool {
+    if line.spans.is_empty() {
+        return true;
+    }
+    line.spans.iter().all(|span| {
+        span.content.chars().all(|c| c.is_whitespace())
+    })
+}
+
 /// Parse Markdown text and return styled lines for ratatui
 pub fn render_markdown(text: &str, theme_colors: MarkdownTheme) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -260,7 +271,23 @@ pub fn render_markdown(text: &str, theme_colors: MarkdownTheme) -> Vec<Line<'sta
         }
     }
 
-    lines
+    // Remove consecutive empty lines (keep at most one)
+    let mut result: Vec<Line<'static>> = Vec::with_capacity(lines.len());
+    let mut prev_was_empty = false;
+
+    for line in lines {
+        if is_line_empty(&line) {
+            if !prev_was_empty {
+                result.push(line);
+            }
+            prev_was_empty = true;
+        } else {
+            result.push(line);
+            prev_was_empty = false;
+        }
+    }
+
+    result
 }
 
 /// Render a markdown table
@@ -698,5 +725,599 @@ mod tests {
         let theme = MarkdownTheme::default();
         let lines = render_markdown("- [ ] Todo\n- [x] Done", theme);
         assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn test_is_line_empty() {
+        // Empty spans
+        assert!(is_line_empty(&Line::from("")));
+
+        // Single whitespace span
+        assert!(is_line_empty(&Line::from("   ")));
+
+        // Multiple whitespace spans
+        let multi_span = Line::from(vec![
+            Span::raw("  "),
+            Span::raw("   "),
+        ]);
+        assert!(is_line_empty(&multi_span));
+
+        // Non-empty line
+        assert!(!is_line_empty(&Line::from("text")));
+
+        // Mix of whitespace and content
+        let mixed = Line::from(vec![
+            Span::raw("  "),
+            Span::raw("text"),
+        ]);
+        assert!(!is_line_empty(&mixed));
+
+        // Unicode whitespace (non-breaking space, tab, etc.)
+        assert!(is_line_empty(&Line::from("\t\t")));
+        assert!(is_line_empty(&Line::from("\u{00A0}"))); // Non-breaking space
+    }
+
+    #[test]
+    fn test_consecutive_empty_lines_removed() {
+        let theme = MarkdownTheme::default();
+        // Three consecutive empty lines should be reduced to one
+        let text = "Line 1\n\n\n\nLine 2";
+        let lines = render_markdown(text, theme);
+
+        // Count empty lines
+        let empty_count = lines.iter()
+            .filter(|line| is_line_empty(line))
+            .count();
+
+        // Should have at most 1 empty line between content
+        assert!(empty_count <= 1, "Expected at most 1 empty line, got {}", empty_count);
+    }
+
+    #[test]
+    fn test_no_consecutive_empty_lines() {
+        let theme = MarkdownTheme::default();
+
+        // Test various inputs with consecutive empty lines
+        let test_cases = vec![
+            "Line 1\n\n\n\nLine 2",
+            "Line 1\n\nLine 2\n\n\nLine 3",
+            "\n\n\nLine 1",
+            "Line 1\n\n\n",
+            "Line 1\n   \n   \n   \nLine 2",  // Lines with only spaces
+            "Line 1\n\t\n\t\nLine 2",  // Lines with only tabs
+        ];
+
+        for text in test_cases {
+            let lines = render_markdown(text, theme);
+
+            // Check that no two consecutive lines are both empty
+            let mut prev_was_empty = false;
+            for (i, line) in lines.iter().enumerate() {
+                let current_is_empty = is_line_empty(line);
+                assert!(
+                    !(prev_was_empty && current_is_empty),
+                    "Found consecutive empty lines at index {} in text: {:?}",
+                    i, text
+                );
+                prev_was_empty = current_is_empty;
+            }
+        }
+    }
+
+    #[test]
+    fn test_empty_lines_with_prefix_simulation() {
+        let theme = MarkdownTheme::default();
+
+        // Simulate what draw_history does: add prefix to each line
+        let text = "Response line 1\n\n\nResponse line 2";
+        let md_lines = render_markdown(text, theme);
+
+        // Simulate adding prefix like draw_history does
+        let mut lines_with_prefix: Vec<Line> = Vec::new();
+        for (i, md_line) in md_lines.into_iter().enumerate() {
+            let prefix = if i == 0 { "< " } else { "  " };
+            let mut spans = vec![Span::raw(prefix)];
+            spans.extend(md_line.spans);
+            lines_with_prefix.push(Line::from(spans));
+        }
+
+        // Add empty line between messages (like draw_history)
+        lines_with_prefix.push(Line::from(""));
+
+        // Now remove consecutive empty lines
+        let mut filtered: Vec<Line> = Vec::new();
+        let mut prev_was_empty = false;
+        for line in lines_with_prefix {
+            if is_line_empty(&line) {
+                if !prev_was_empty {
+                    filtered.push(line);
+                }
+                prev_was_empty = true;
+            } else {
+                filtered.push(line);
+                prev_was_empty = false;
+            }
+        }
+
+        // Verify no consecutive empty lines
+        let mut prev_was_empty = false;
+        for (i, line) in filtered.iter().enumerate() {
+            let current_is_empty = is_line_empty(line);
+            assert!(
+                !(prev_was_empty && current_is_empty),
+                "Found consecutive empty lines at index {} after prefix simulation",
+                i
+            );
+            prev_was_empty = current_is_empty;
+        }
+    }
+
+    #[test]
+    fn test_debug_render_output() {
+        let theme = MarkdownTheme::default();
+
+        // Test input with multiple empty lines
+        let text = "Line 1\n\n\n\nLine 2\n\n\nLine 3";
+        let lines = render_markdown(text, theme);
+
+        // Print each line for debugging
+        println!("\n=== Rendered lines ===");
+        for (i, line) in lines.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            let is_empty = is_line_empty(line);
+            println!("Line {}: '{}' (empty: {})", i, content, is_empty);
+        }
+
+        // Check for consecutive empty lines
+        let mut consecutive_count = 0;
+        let mut max_consecutive = 0;
+        for line in &lines {
+            if is_line_empty(line) {
+                consecutive_count += 1;
+                max_consecutive = max_consecutive.max(consecutive_count);
+            } else {
+                consecutive_count = 0;
+            }
+        }
+
+        println!("Max consecutive empty lines: {}", max_consecutive);
+        assert!(max_consecutive <= 1, "Found {} consecutive empty lines", max_consecutive);
+    }
+
+    #[test]
+    fn test_full_draw_history_simulation() {
+        let theme = MarkdownTheme::default();
+
+        // Simulate multiple messages like in draw_history
+        let messages = vec![
+            "Hello, this is a question.",
+            "This is response 1.\n\n\nWith multiple paragraphs.\n\n\n\nAnd more content.",
+            "Another question?",
+            "Response 2.\n\nWith a list:\n- Item 1\n\n\n- Item 2",
+        ];
+
+        let mut all_lines: Vec<Line> = Vec::new();
+
+        for (msg_idx, content) in messages.iter().enumerate() {
+            let is_assistant = msg_idx % 2 == 1;
+            let icon = if is_assistant { "< " } else { "> " };
+
+            if is_assistant {
+                let md_lines = render_markdown(content, theme);
+                for (i, md_line) in md_lines.into_iter().enumerate() {
+                    let prefix = if i == 0 { icon } else { "  " };
+                    let mut spans = vec![Span::raw(prefix)];
+                    spans.extend(md_line.spans);
+                    all_lines.push(Line::from(spans));
+                }
+            } else {
+                for (i, line_text) in content.lines().enumerate() {
+                    let prefix = if i == 0 { icon } else { "  " };
+                    all_lines.push(Line::from(vec![
+                        Span::raw(prefix),
+                        Span::raw(line_text.to_string()),
+                    ]));
+                }
+            }
+            // Empty line between messages
+            all_lines.push(Line::from(""));
+        }
+
+        println!("\n=== Before filtering ===");
+        for (i, line) in all_lines.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("Line {}: '{}' (empty: {})", i, content, is_line_empty(line));
+        }
+
+        // Apply consecutive empty line removal
+        let mut filtered: Vec<Line> = Vec::new();
+        let mut prev_was_empty = false;
+        for line in all_lines {
+            if is_line_empty(&line) {
+                if !prev_was_empty {
+                    filtered.push(line);
+                }
+                prev_was_empty = true;
+            } else {
+                filtered.push(line);
+                prev_was_empty = false;
+            }
+        }
+
+        println!("\n=== After filtering ===");
+        for (i, line) in filtered.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("Line {}: '{}' (empty: {})", i, content, is_line_empty(line));
+        }
+
+        // Verify no consecutive empty lines
+        let mut consecutive_count = 0;
+        let mut max_consecutive = 0;
+        for line in &filtered {
+            if is_line_empty(line) {
+                consecutive_count += 1;
+                max_consecutive = max_consecutive.max(consecutive_count);
+            } else {
+                consecutive_count = 0;
+            }
+        }
+
+        println!("\nMax consecutive empty lines: {}", max_consecutive);
+        assert!(max_consecutive <= 1, "Found {} consecutive empty lines", max_consecutive);
+    }
+
+    #[test]
+    fn test_korean_greeting_response() {
+        let theme = MarkdownTheme::default();
+
+        // Simulate typical AI response to "안녕"
+        let ai_response = r#"안녕하세요! 반갑습니다.
+
+무엇을 도와드릴까요? 파일 관리나 다른 작업이 필요하시면 말씀해주세요.
+
+다음과 같은 작업을 도와드릴 수 있습니다:
+- 파일 복사/이동/삭제
+- 디렉토리 탐색
+- 파일 검색
+- 기타 터미널 작업"#;
+
+        let lines = render_markdown(ai_response, theme);
+
+        println!("\n=== Korean greeting response rendering ===");
+        for (i, line) in lines.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            let is_empty = is_line_empty(line);
+            println!("Line {}: '{}' (empty: {})", i, content, is_empty);
+        }
+
+        // Check no consecutive empty lines
+        let mut consecutive = 0;
+        let mut max = 0;
+        for line in &lines {
+            if is_line_empty(line) {
+                consecutive += 1;
+                max = max.max(consecutive);
+            } else {
+                consecutive = 0;
+            }
+        }
+
+        println!("\nTotal lines: {}, Max consecutive empty: {}", lines.len(), max);
+        assert!(max <= 1, "Found {} consecutive empty lines", max);
+    }
+
+    #[test]
+    fn test_korean_full_conversation_simulation() {
+        let theme = MarkdownTheme::default();
+
+        // User: "안녕."
+        let user_input = "안녕.";
+
+        // AI Response
+        let ai_response = r#"안녕하세요! 반갑습니다.
+
+무엇을 도와드릴까요? 파일 관리나 다른 작업이 필요하시면 말씀해주세요.
+
+다음과 같은 작업을 도와드릴 수 있습니다:
+- 파일 복사/이동/삭제
+- 디렉토리 탐색
+- 파일 검색
+- 기타 터미널 작업"#;
+
+        // Simulate draw_history
+        let mut all_lines: Vec<Line> = Vec::new();
+
+        // User message
+        all_lines.push(Line::from(vec![
+            Span::raw("> "),
+            Span::raw(user_input),
+        ]));
+        all_lines.push(Line::from("")); // Empty line between messages
+
+        // AI response with markdown
+        let md_lines = render_markdown(ai_response, theme);
+        for (i, md_line) in md_lines.into_iter().enumerate() {
+            let prefix = if i == 0 { "< " } else { "  " };
+            let mut spans = vec![Span::raw(prefix)];
+            spans.extend(md_line.spans);
+            all_lines.push(Line::from(spans));
+        }
+        all_lines.push(Line::from("")); // Empty line after message
+
+        println!("\n=== Before filtering ===");
+        for (i, line) in all_lines.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("Line {}: '{}' (empty: {})", i, content, is_line_empty(line));
+        }
+
+        // Apply consecutive empty line removal
+        let mut filtered: Vec<Line> = Vec::new();
+        let mut prev_was_empty = false;
+        for line in all_lines {
+            if is_line_empty(&line) {
+                if !prev_was_empty {
+                    filtered.push(line);
+                }
+                prev_was_empty = true;
+            } else {
+                filtered.push(line);
+                prev_was_empty = false;
+            }
+        }
+
+        println!("\n=== After filtering (final display) ===");
+        for (i, line) in filtered.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("Line {}: '{}' (empty: {})", i, content, is_line_empty(line));
+        }
+
+        // Verify no consecutive empty lines
+        let mut consecutive = 0;
+        let mut max = 0;
+        for line in &filtered {
+            if is_line_empty(line) {
+                consecutive += 1;
+                max = max.max(consecutive);
+            } else {
+                consecutive = 0;
+            }
+        }
+
+        println!("\nTotal lines: {}, Max consecutive empty: {}", filtered.len(), max);
+        assert!(max <= 1, "Found {} consecutive empty lines", max);
+    }
+
+    #[test]
+    fn test_paragraph_wrap_empty_lines() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        use ratatui::widgets::{Paragraph, Wrap};
+        use ratatui::layout::Rect;
+
+        // Test NBSP behavior
+        let nbsp = "\u{00A0}";
+        println!("\n=== NBSP Analysis ===");
+        println!("NBSP: {:?}", nbsp);
+        println!("NBSP trim: {:?}", nbsp.trim());
+        println!("NBSP trim is_empty: {}", nbsp.trim().is_empty());
+        println!("NBSP is_whitespace: {}", nbsp.chars().all(|c| c.is_whitespace()));
+
+        // Test NBSP lines
+        let lines: Vec<Line> = vec![
+            Line::from(vec![Span::raw("< "), Span::raw("Content 1")]),
+            Line::from("\u{00A0}"),  // NBSP - should render as 1 row
+            Line::from(vec![Span::raw("  "), Span::raw("Content 2")]),
+            Line::from("\u{00A0}"),  // NBSP - should render as 1 row
+            Line::from(vec![Span::raw("  "), Span::raw("Content 3")]),
+            Line::from("\u{00A0}"),  // NBSP - should render as 1 row
+        ];
+
+        println!("\n=== Input Lines ===");
+        for (i, line) in lines.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("Line {}: '{}' (spans: {}, empty: {})", i, content, line.spans.len(), is_line_empty(line));
+        }
+
+        // Render with Paragraph and Wrap
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| {
+            let area = Rect::new(0, 0, 40, 10);
+            let paragraph = Paragraph::new(lines)
+                .wrap(Wrap { trim: false });
+            frame.render_widget(paragraph, area);
+        }).unwrap();
+
+        println!("\n=== Rendered Output ===");
+        let buffer = terminal.backend().buffer();
+        let mut consecutive = 0;
+        let mut max = 0;
+        for y in 0..10u16 {
+            let mut line = String::new();
+            for x in 0..40u16 {
+                let cell = buffer.get(x, y);
+                line.push_str(cell.symbol());
+            }
+            let trimmed = line.trim_end();
+            let is_empty = trimmed.is_empty();
+            if is_empty {
+                consecutive += 1;
+                max = max.max(consecutive);
+            } else {
+                consecutive = 0;
+            }
+            println!("Row {}: '{}' (empty: {})", y, trimmed, is_empty);
+        }
+        println!("\nMax consecutive empty rows: {}", max);
+    }
+
+    #[test]
+    fn test_real_claude_response_simulation() {
+        let theme = MarkdownTheme::default();
+
+        // Actual Claude response (captured from --prompt)
+        let raw_response = r#"안녕하세요! 터미널 파일 관리자 도우미입니다.
+
+현재 작업 디렉토리는 /mnt/hgfs/vmware_ubuntu_shared/cokacdir_rust 입니다.
+
+어떤 파일 작업을 도와드릴까요? 예를 들어:
+- 파일/폴더 목록 보기
+- 파일 복사, 이동, 이름 변경
+- 디렉토리 생성
+- 파일 내용 보기"#;
+
+        // Step 1: Normalize (like add_to_history does)
+        fn normalize_empty_lines(text: &str) -> String {
+            let lines: Vec<&str> = text.lines().collect();
+            let mut result_lines: Vec<&str> = Vec::new();
+            let mut prev_was_empty = false;
+
+            for line in lines {
+                let is_empty = line.chars().all(|c| c.is_whitespace());
+                if is_empty {
+                    if !prev_was_empty {
+                        result_lines.push("");
+                    }
+                    prev_was_empty = true;
+                } else {
+                    result_lines.push(line);
+                    prev_was_empty = false;
+                }
+            }
+            result_lines.join("\n")
+        }
+
+        let normalized = normalize_empty_lines(raw_response);
+        println!("\n=== After normalize_empty_lines ===");
+        for (i, line) in normalized.lines().enumerate() {
+            println!("Normalized line {}: '{}'", i, line);
+        }
+
+        // Step 2: Render markdown
+        let md_lines = render_markdown(&normalized, theme);
+        println!("\n=== After render_markdown ===");
+        for (i, line) in md_lines.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("MD line {}: '{}' (empty: {})", i, content, is_line_empty(line));
+        }
+
+        // Step 3: Add prefix (like draw_history does)
+        let mut lines_with_prefix: Vec<Line> = Vec::new();
+        for (i, md_line) in md_lines.into_iter().enumerate() {
+            let prefix = if i == 0 { "< " } else { "  " };
+            let mut spans = vec![Span::raw(prefix)];
+            spans.extend(md_line.spans);
+            lines_with_prefix.push(Line::from(spans));
+        }
+        // Add empty line after message
+        lines_with_prefix.push(Line::from(""));
+
+        println!("\n=== After adding prefix ===");
+        for (i, line) in lines_with_prefix.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("Prefix line {}: '{}' (empty: {})", i, content, is_line_empty(line));
+        }
+
+        // Step 4: Remove consecutive empty lines
+        let mut filtered: Vec<Line> = Vec::new();
+        let mut prev_was_empty = false;
+        for line in lines_with_prefix {
+            if is_line_empty(&line) {
+                if !prev_was_empty {
+                    filtered.push(line);
+                }
+                prev_was_empty = true;
+            } else {
+                filtered.push(line);
+                prev_was_empty = false;
+            }
+        }
+
+        println!("\n=== Final filtered lines ===");
+        for (i, line) in filtered.iter().enumerate() {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("Final line {}: '{}' (empty: {})", i, content, is_line_empty(line));
+        }
+
+        // Verify no consecutive empty lines
+        let mut consecutive = 0;
+        let mut max = 0;
+        for line in &filtered {
+            if is_line_empty(line) {
+                consecutive += 1;
+                max = max.max(consecutive);
+            } else {
+                consecutive = 0;
+            }
+        }
+
+        println!("\nMax consecutive empty: {}", max);
+        assert!(max <= 1, "Found {} consecutive empty lines", max);
+    }
+
+    #[test]
+    fn test_special_markdown_patterns() {
+        let theme = MarkdownTheme::default();
+
+        // Various markdown patterns that might cause issues
+        let test_cases = vec![
+            // Headers with empty lines
+            "# Header 1\n\n\n## Header 2",
+            // Code blocks with empty lines
+            "```rust\ncode\n\n\nmore code\n```\n\n\nafter code",
+            // Lists with empty lines between items
+            "- Item 1\n\n\n- Item 2\n\n\n- Item 3",
+            // Mixed content
+            "# Title\n\n\nParagraph\n\n\n```\ncode\n```\n\n\n- list item",
+            // Blockquotes
+            "> Quote 1\n\n\n> Quote 2",
+            // Horizontal rules
+            "---\n\n\n---",
+            // Tables
+            "| A | B |\n|---|---|\n| 1 | 2 |\n\n\n| C | D |\n|---|---|\n| 3 | 4 |",
+        ];
+
+        for (idx, text) in test_cases.iter().enumerate() {
+            let lines = render_markdown(text, theme);
+
+            // Check for consecutive empty lines
+            let mut consecutive = 0;
+            let mut max = 0;
+            for line in &lines {
+                if is_line_empty(line) {
+                    consecutive += 1;
+                    max = max.max(consecutive);
+                } else {
+                    consecutive = 0;
+                }
+            }
+
+            assert!(
+                max <= 1,
+                "Test case {} failed: found {} consecutive empty lines.\nInput: {:?}",
+                idx, max, text
+            );
+        }
     }
 }

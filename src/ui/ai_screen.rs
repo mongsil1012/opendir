@@ -12,7 +12,7 @@ use std::thread;
 
 use super::theme::Theme;
 use crate::services::claude::{self, ClaudeResponse};
-use crate::utils::markdown::{render_markdown, MarkdownTheme};
+use crate::utils::markdown::{is_line_empty, render_markdown, MarkdownTheme};
 
 /// Sanitize user input to prevent prompt injection attacks
 /// Removes or escapes patterns that could be used to override AI instructions
@@ -61,6 +61,32 @@ fn sanitize_user_input(input: &str) -> String {
     }
 
     sanitized
+}
+
+/// Normalize consecutive empty lines to maximum of one
+/// This prevents excessive whitespace in rendered markdown output
+/// Handles both ASCII and Unicode whitespace characters
+fn normalize_empty_lines(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut result_lines: Vec<&str> = Vec::new();
+    let mut prev_was_empty = false;
+
+    for line in lines {
+        // Check if line contains only whitespace (including Unicode whitespace)
+        let is_empty = line.chars().all(|c| c.is_whitespace());
+
+        if is_empty {
+            if !prev_was_empty {
+                result_lines.push("");  // Add single empty line
+            }
+            prev_was_empty = true;
+        } else {
+            result_lines.push(line);
+            prev_was_empty = false;
+        }
+    }
+
+    result_lines.join("\n")
 }
 
 #[derive(Debug, Clone)]
@@ -121,12 +147,18 @@ const MAX_HISTORY_ITEMS: usize = 500;
 
 impl AIScreenState {
     /// Add item to history with size limit to prevent memory exhaustion
+    /// Also normalizes consecutive empty lines in content
     pub fn add_to_history(&mut self, item: HistoryItem) {
         // Remove oldest items if we're at the limit
         while self.history.len() >= MAX_HISTORY_ITEMS {
             self.history.remove(0);
         }
-        self.history.push(item);
+        // Normalize content to remove consecutive empty lines
+        let normalized_item = HistoryItem {
+            item_type: item.item_type,
+            content: normalize_empty_lines(&item.content),
+        };
+        self.history.push(normalized_item);
     }
 
     pub fn new(current_path: String) -> Self {
@@ -153,6 +185,12 @@ impl AIScreenState {
             debug_input_mode: false,
             debug_input_buffer: String::new(),
         };
+
+        // Add warning message as first line
+        state.history.push(HistoryItem {
+            item_type: HistoryType::System,
+            content: "⚠ Warning: AI commands may execute real operations on your system. Please use with caution.".to_string(),
+        });
 
         if !claude::is_ai_supported() {
             state.history.push(HistoryItem {
@@ -633,9 +671,10 @@ Keep responses concise and terminal-friendly.",
                         if let Some(sid) = response.session_id {
                             self.session_id = Some(sid);
                         }
+                        let content = response.response.unwrap_or_else(|| "Command executed.".to_string());
                         self.add_to_history(HistoryItem {
                             item_type: HistoryType::Assistant,
-                            content: response.response.unwrap_or_else(|| "Command executed.".to_string()),
+                            content: normalize_empty_lines(&content),
                         });
                     } else {
                         self.add_to_history(HistoryItem {
@@ -807,6 +846,63 @@ fn draw_history(frame: &mut Frame, state: &mut AIScreenState, area: Rect, theme:
         lines.push(Line::from("")); // Empty line between messages
     }
 
+    // Remove consecutive empty lines (keep at most one)
+    let mut filtered_lines: Vec<Line> = Vec::with_capacity(lines.len());
+    let mut prev_was_empty = false;
+    for line in lines {
+        if is_line_empty(&line) {
+            if !prev_was_empty {
+                filtered_lines.push(line);
+            }
+            prev_was_empty = true;
+        } else {
+            filtered_lines.push(line);
+            prev_was_empty = false;
+        }
+    }
+
+    // Convert empty lines to NBSP to prevent Paragraph from rendering multiple rows
+    // Paragraph with Wrap renders empty/whitespace Line as multiple blank rows
+    // NBSP (Non-Breaking Space, \u{00A0}) is rendered as exactly 1 row
+    let lines: Vec<Line> = filtered_lines.into_iter().map(|line| {
+        if is_line_empty(&line) {
+            Line::from("\u{00A0}")  // NBSP renders as 1 row
+        } else {
+            line
+        }
+    }).collect();
+
+    // DEBUG: Write rendered lines to file for analysis
+    #[cfg(debug_assertions)]
+    {
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open("/tmp/cokacdir_debug_lines.txt")
+        {
+            for (i, line) in lines.iter().enumerate() {
+                let content: String = line.spans.iter()
+                    .map(|s| s.content.as_ref())
+                    .collect();
+                let is_empty = is_line_empty(line);
+                let _ = writeln!(file, "Line {}: '{}' (empty: {})", i, content, is_empty);
+            }
+            let mut consecutive = 0;
+            let mut max = 0;
+            for line in &lines {
+                if is_line_empty(line) {
+                    consecutive += 1;
+                    max = max.max(consecutive);
+                } else {
+                    consecutive = 0;
+                }
+            }
+            let _ = writeln!(file, "\nMax consecutive empty: {}", max);
+        }
+    }
+
     // Calculate total wrapped lines by simulating ratatui's greedy word-wrap behavior
     let width = inner.width as usize;
     let total_lines: usize = if width == 0 {
@@ -973,10 +1069,11 @@ fn estimate_wrapped_lines(line: &Line, width: usize) -> usize {
         return 1;
     }
 
-    // IMPORTANT: ratatui 0.28 with Wrap { trim: false } renders whitespace-only
-    // lines as 2 rows. This is a known behavior that we need to account for.
+    // NBSP lines (used for empty line placeholders) render as exactly 1 row
+    // Regular whitespace-only lines would render as 2 rows with Wrap { trim: false }
+    // but we convert all empty lines to NBSP, so they render as 1 row
     if !text.is_empty() && text.trim().is_empty() {
-        return 2;
+        return 1;  // NBSP and whitespace lines now render as 1 row
     }
 
     // Calculate total width using unicode-width
@@ -1006,10 +1103,16 @@ fn estimate_wrapped_lines(line: &Line, width: usize) -> usize {
                     // Word doesn't fit, start new line
                     if word_width > width {
                         // Word is longer than width, needs multiple lines
-                        line_count += word_width.div_ceil(width);
-                        current_width = word_width % width;
                         if current_width == 0 {
-                            current_width = 0;
+                            // Word starts at line beginning
+                            line_count += word_width.div_ceil(width);
+                            current_width = word_width % width;
+                        } else {
+                            // Word starts mid-line, fills remaining then wraps
+                            let remaining_space = width - current_width;
+                            let remaining_word = word_width.saturating_sub(remaining_space);
+                            line_count += 1 + remaining_word.div_ceil(width);
+                            current_width = remaining_word % width;
                         }
                     } else {
                         line_count += 1;
@@ -1039,7 +1142,15 @@ fn estimate_wrapped_lines(line: &Line, width: usize) -> usize {
     // Handle last word
     if in_word && word_width > 0 && current_width + word_width > width {
         if word_width > width {
-            line_count += word_width.div_ceil(width);
+            if current_width == 0 {
+                // Word fills from line start, replace initial line_count
+                line_count = word_width.div_ceil(width);
+            } else {
+                // Word wraps from mid-line
+                let remaining_space = width - current_width;
+                let remaining_word = word_width.saturating_sub(remaining_space);
+                line_count += remaining_word.div_ceil(width);
+            }
         } else {
             line_count += 1;
         }
@@ -2143,6 +2254,78 @@ mod tests {
     }
 
     #[test]
+    fn test_estimate_long_word_wrapping() {
+        use ratatui::{
+            backend::TestBackend,
+            Terminal,
+            widgets::{Paragraph, Wrap},
+            text::Line,
+            layout::Rect,
+        };
+
+        let width = 20u16;
+        let height = 20u16;
+
+        // Test cases: (description, text, expected_lines)
+        let test_cases: Vec<(&str, String, usize)> = vec![
+            // Long word at start (100 chars = 5 lines of 20)
+            ("100 char word alone", "a".repeat(100), 5),
+            // Long word at start (21 chars = 2 lines)
+            ("21 char word alone", "a".repeat(21), 2),
+            // Long word with prefix: "ab " (3) + 100 c's
+            // Line 1: "ab " + 17 c's = 20, Lines 2-6: 83 c's = 5 lines, Total: 6
+            ("prefix + 100 char word", format!("ab {}", "c".repeat(100)), 6),
+            // Two long words: 100 a's + " " + 100 b's
+            // Lines 1-5: 100 a's, Line 6: " " + 19 b's, Lines 7-11: 81 b's = 11 total
+            ("two 100 char words", format!("{} {}", "a".repeat(100), "b".repeat(100)), 11),
+            // Short + long word: "abc " (4) + 100 d's
+            // Line 1: "abc " + 16 d's = 20, Lines 2-6: 84 d's = 5 lines, Total: 6
+            ("short + long word", format!("abc {}", "d".repeat(100)), 6),
+        ];
+
+        for (name, text, expected) in test_cases {
+            let line = Line::from(text.as_str());
+            let estimated = super::estimate_wrapped_lines(&line, width as usize);
+
+            // Also verify against actual ratatui rendering
+            let backend = TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).unwrap();
+
+            terminal.draw(|frame| {
+                let area = Rect::new(0, 0, width, height);
+                let paragraph = Paragraph::new(vec![line.clone()])
+                    .wrap(Wrap { trim: false });
+                frame.render_widget(paragraph, area);
+            }).unwrap();
+
+            let buffer = terminal.backend().buffer();
+
+            // Count actual rows used by finding last row with content
+            let mut actual_rows = 0;
+            for y in 0..height {
+                let mut has_content = false;
+                for x in 0..width {
+                    let cell = buffer.cell((x, y)).unwrap();
+                    if cell.symbol() != " " {
+                        has_content = true;
+                        break;
+                    }
+                }
+                if has_content {
+                    actual_rows = y + 1;
+                }
+            }
+
+            println!("{}: estimated={}, actual={}, expected={}", name, estimated, actual_rows, expected);
+
+            assert_eq!(estimated, actual_rows as usize,
+                "{}: estimated ({}) should match actual ({})", name, estimated, actual_rows);
+            assert_eq!(estimated, expected,
+                "{}: estimated ({}) should match expected ({})", name, estimated, expected);
+        }
+    }
+
+    #[test]
     fn test_markdown_rendering_line_count() {
         use ratatui::{
             backend::TestBackend,
@@ -2487,5 +2670,50 @@ Let me know what you'd like to do!
         }
 
         assert!(found_marker, "END_MARKER should be visible at max_scroll - this means scroll reaches the bottom correctly");
+    }
+
+    #[test]
+    fn test_normalize_empty_lines() {
+        // Basic consecutive empty lines
+        let result = normalize_empty_lines("Line 1\n\n\n\nLine 2");
+        assert_eq!(result, "Line 1\n\nLine 2");
+
+        // Multiple groups of empty lines
+        let result = normalize_empty_lines("A\n\n\nB\n\n\n\nC");
+        assert_eq!(result, "A\n\nB\n\nC");
+
+        // Empty lines at start
+        let result = normalize_empty_lines("\n\n\nLine 1");
+        assert_eq!(result, "\nLine 1");
+
+        // Empty lines at end
+        let result = normalize_empty_lines("Line 1\n\n\n");
+        assert_eq!(result, "Line 1\n");
+
+        // Lines with only spaces/tabs (should be treated as empty)
+        let result = normalize_empty_lines("Line 1\n   \n   \n   \nLine 2");
+        assert_eq!(result, "Line 1\n\nLine 2");
+
+        // Verify no consecutive empty lines in result
+        for text in &[
+            "Line 1\n\n\n\nLine 2",
+            "A\n\n\nB\n\n\n\nC",
+            "\n\n\nStart",
+            "End\n\n\n",
+            "Mixed\n\t\n   \nContent",
+        ] {
+            let result = normalize_empty_lines(text);
+            let lines: Vec<&str> = result.lines().collect();
+            let mut prev_empty = false;
+            for line in &lines {
+                let is_empty = line.chars().all(|c| c.is_whitespace());
+                assert!(
+                    !(prev_empty && is_empty),
+                    "Found consecutive empty lines in: {:?} -> {:?}",
+                    text, result
+                );
+                prev_empty = is_empty;
+            }
+        }
     }
 }

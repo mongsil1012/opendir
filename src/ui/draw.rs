@@ -22,7 +22,7 @@ use super::{
     theme::Theme,
 };
 
-const APP_TITLE: &str = "COKACDIR v0.4.2";
+const APP_TITLE: &str = "COKACDIR v0.4.3";
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let theme = Theme::default();

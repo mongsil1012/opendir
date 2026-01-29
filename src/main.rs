@@ -17,6 +17,8 @@ use ratatui::{
 };
 
 use crate::ui::app::{App, Screen};
+use crate::services::claude;
+use crate::utils::markdown::{render_markdown, MarkdownTheme, is_line_empty};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -27,14 +29,176 @@ fn print_help() {
     println!("    cokacdir [OPTIONS]");
     println!();
     println!("OPTIONS:");
-    println!("    -h, --help       Print help information");
-    println!("    -v, --version    Print version information");
+    println!("    -h, --help              Print help information");
+    println!("    -v, --version           Print version information");
+    println!("    --prompt <TEXT>         Send prompt to AI and print rendered response");
     println!();
     println!("HOMEPAGE: https://cokacdir.cokac.com");
 }
 
 fn print_version() {
     println!("cokacdir {}", VERSION);
+}
+
+fn render_test(prompt: &str) {
+    use crate::ui::theme::Theme;
+    use crate::ui::ai_screen::{AIScreenState, HistoryItem, HistoryType};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use ratatui::layout::Rect;
+
+    // Check if Claude is available
+    if !claude::is_claude_available() {
+        eprintln!("Error: Claude CLI is not available.");
+        return;
+    }
+
+    // Execute Claude command
+    let current_dir = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+    let response = claude::execute_command(prompt, None, &current_dir);
+
+    if !response.success {
+        eprintln!("Error: {}", response.error.unwrap_or_else(|| "Unknown error".to_string()));
+        return;
+    }
+
+    let content = response.response.unwrap_or_default();
+
+    // Create AI screen state and add messages
+    let mut state = AIScreenState::new(current_dir);
+    state.history.clear(); // Remove system warning
+
+    // Add user message
+    state.add_to_history(HistoryItem {
+        item_type: HistoryType::User,
+        content: prompt.to_string(),
+    });
+
+    // Add AI response
+    state.add_to_history(HistoryItem {
+        item_type: HistoryType::Assistant,
+        content: content.clone(),
+    });
+
+    // Create test terminal (80x24)
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    // Draw the AI screen
+    let theme = Theme::default();
+    terminal.draw(|frame| {
+        let area = Rect::new(0, 0, 80, 24);
+        crate::ui::ai_screen::draw(frame, &mut state, area, &theme);
+    }).unwrap();
+
+    // Get the buffer and print each line
+    let buffer = terminal.backend().buffer();
+    println!("=== TUI Rendered Output (80x24) ===");
+
+    let mut prev_was_empty = false;
+    let mut consecutive_empty = 0;
+    let mut max_consecutive = 0;
+
+    for y in 0..buffer.area.height {
+        let mut line = String::new();
+        for x in 0..buffer.area.width {
+            let cell = buffer.get(x, y);
+            line.push_str(cell.symbol());
+        }
+        let trimmed = line.trim_end();
+        let is_empty = trimmed.is_empty() || trimmed.chars().all(|c| c.is_whitespace() || c == '│' || c == '─' || c == '┌' || c == '┐' || c == '└' || c == '┘');
+
+        // Check for content lines (not borders)
+        let is_content_empty = line.trim().is_empty() ||
+            (line.contains('│') && line.replace('│', "").replace(' ', "").is_empty());
+
+        if is_content_empty {
+            consecutive_empty += 1;
+            max_consecutive = max_consecutive.max(consecutive_empty);
+        } else {
+            consecutive_empty = 0;
+        }
+
+        println!("Line {:2}: '{}'", y, trimmed);
+        prev_was_empty = is_empty;
+    }
+
+    println!("\n=== Analysis ===");
+    println!("Max consecutive empty content lines: {}", max_consecutive);
+}
+
+fn handle_prompt(prompt: &str) {
+    use crate::ui::theme::Theme;
+
+    // Check if Claude is available
+    if !claude::is_claude_available() {
+        eprintln!("Error: Claude CLI is not available.");
+        eprintln!("Please install Claude CLI: https://claude.ai/cli");
+        return;
+    }
+
+    // Execute Claude command
+    let current_dir = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+    let response = claude::execute_command(prompt, None, &current_dir);
+
+    if !response.success {
+        eprintln!("Error: {}", response.error.unwrap_or_else(|| "Unknown error".to_string()));
+        return;
+    }
+
+    let content = response.response.unwrap_or_default();
+
+    // Normalize empty lines first
+    let normalized = normalize_consecutive_empty_lines(&content);
+
+    // Render markdown
+    let theme = Theme::default();
+    let md_theme = MarkdownTheme::from_theme(&theme);
+    let lines = render_markdown(&normalized, md_theme);
+
+    // Remove consecutive empty lines from rendered output
+    let mut prev_was_empty = false;
+    for line in lines {
+        let is_empty = is_line_empty(&line);
+        if is_empty {
+            if !prev_was_empty {
+                println!();
+            }
+            prev_was_empty = true;
+        } else {
+            let content: String = line.spans.iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            println!("{}", content);
+            prev_was_empty = false;
+        }
+    }
+}
+
+/// Normalize consecutive empty lines to maximum of one
+fn normalize_consecutive_empty_lines(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut result_lines: Vec<&str> = Vec::new();
+    let mut prev_was_empty = false;
+
+    for line in lines {
+        let is_empty = line.chars().all(|c| c.is_whitespace());
+        if is_empty {
+            if !prev_was_empty {
+                result_lines.push("");
+            }
+            prev_was_empty = true;
+        } else {
+            result_lines.push(line);
+            prev_was_empty = false;
+        }
+    }
+
+    result_lines.join("\n")
 }
 
 fn main() -> io::Result<()> {
@@ -48,6 +212,23 @@ fn main() -> io::Result<()> {
             }
             "-v" | "--version" => {
                 print_version();
+                return Ok(());
+            }
+            "--prompt" => {
+                if args.len() < 3 {
+                    eprintln!("Error: --prompt requires a text argument");
+                    eprintln!("Usage: cokacdir --prompt \"your question\"");
+                    return Ok(());
+                }
+                handle_prompt(&args[2]);
+                return Ok(());
+            }
+            "--render-test" => {
+                if args.len() < 3 {
+                    eprintln!("Error: --render-test requires a text argument");
+                    return Ok(());
+                }
+                render_test(&args[2]);
                 return Ok(());
             }
             _ => {
