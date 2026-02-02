@@ -508,11 +508,13 @@ pub fn draw(frame: &mut Frame, state: &mut ViewerState, area: Rect, theme: &Them
         // wrapped 줄 목록 생성: (원본 줄 번호, 원본 줄 참조, 줄 내용, 첫 줄 여부)
         let mut wrapped_lines: Vec<(usize, String, bool)> = Vec::new();
 
-        for (orig_idx, line) in state.lines.iter().enumerate() {
+        for (orig_idx, original_line) in state.lines.iter().enumerate() {
+            // TAB을 4칸 스페이스로 변환 (잔상 방지)
+            let line = original_line.replace('\t', "    ");
             if line.is_empty() {
                 wrapped_lines.push((orig_idx, String::new(), true));
             } else if content_width > 0 {
-                let wrapped = textwrap::wrap(line, content_width);
+                let wrapped = textwrap::wrap(&line, content_width);
                 for (wi, wline) in wrapped.iter().enumerate() {
                     wrapped_lines.push((orig_idx, wline.to_string(), wi == 0));
                 }
@@ -605,7 +607,9 @@ pub fn draw(frame: &mut Frame, state: &mut ViewerState, area: Rect, theme: &Them
         }
     } else {
         // 일반 모드 (word wrap 없음)
-        for (i, line) in state.lines.iter().skip(state.scroll).take(content_height).enumerate() {
+        for (i, original_line) in state.lines.iter().skip(state.scroll).take(content_height).enumerate() {
+            // TAB을 4칸 스페이스로 변환 (잔상 방지)
+            let line = original_line.replace('\t', "    ");
             let line_num = state.scroll + i;
             let is_bookmarked = state.bookmarks.contains(&line_num);
 
@@ -626,11 +630,11 @@ pub fn draw(frame: &mut Frame, state: &mut ViewerState, area: Rect, theme: &Them
 
             // 콘텐츠 렌더링
             let content_spans = if state.mode == ViewerMode::Hex {
-                render_hex_line(line, theme)
+                render_hex_line(&line, theme)
             } else if let Some(ref mut hl) = highlighter {
                 // 문법 강조와 검색 하이라이트를 함께 처리
                 render_line_with_syntax_and_search(
-                    line,
+                    &line,
                     hl,
                     &state.match_positions,
                     line_num,
@@ -639,7 +643,7 @@ pub fn draw(frame: &mut Frame, state: &mut ViewerState, area: Rect, theme: &Them
                     theme,
                 )
             } else if !state.match_positions.is_empty() {
-                highlight_search_in_line(line, &state.match_positions, line_num, state.current_match, line_bg_style, theme)
+                highlight_search_in_line(&line, &state.match_positions, line_num, state.current_match, line_bg_style, theme)
             } else {
                 vec![Span::styled(line.clone(), line_bg_style)]
             };

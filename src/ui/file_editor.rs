@@ -2051,7 +2051,9 @@ pub fn draw(frame: &mut Frame, state: &mut EditorState, area: Rect, theme: &Them
         }
     }
 
-    for (i, line) in state.lines.iter().skip(state.scroll).take(content_height).enumerate() {
+    for (i, original_line) in state.lines.iter().skip(state.scroll).take(content_height).enumerate() {
+        // TAB을 4칸 스페이스로 변환 (잔상 방지)
+        let line = original_line.replace('\t', "    ");
         let line_num = state.scroll + i;
         let is_cursor_line = line_num == state.cursor_line;
 
@@ -2072,7 +2074,7 @@ pub fn draw(frame: &mut Frame, state: &mut EditorState, area: Rect, theme: &Them
         // 라인 렌더링
         let in_find_mode = state.find_mode != FindReplaceMode::None;
         let content_spans = render_editor_line(
-            line,
+            &line,
             line_num,
             state,
             &selection,
