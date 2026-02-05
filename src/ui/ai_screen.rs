@@ -643,8 +643,12 @@ impl AIScreenState {
 
     /// Insert pasted text at cursor position (handles multi-line text)
     pub fn insert_pasted_text(&mut self, text: &str) {
+        // Normalize line endings: remove all \r characters
+        // Windows uses \r\n, some systems use \r alone
+        let normalized = text.replace('\r', "");
+
         // Split pasted text into lines
-        let lines: Vec<&str> = text.lines().collect();
+        let lines: Vec<&str> = normalized.lines().collect();
 
         if lines.is_empty() {
             return;
