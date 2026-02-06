@@ -11,7 +11,7 @@ keywords = ["terminal", "cli", "file-manager", "dual-panel", "tui", "ai"]
 categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
-ratatui = "0.28"
+ratatui = { version = "0.28", features = ["unstable-rendered-line-info"] }
 crossterm = "0.28"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "process"] }
 serde = { version = "1", features = ["derive"] }

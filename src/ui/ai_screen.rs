@@ -1255,7 +1255,8 @@ fn draw_history(frame: &mut Frame, state: &mut AIScreenState, area: Rect, theme:
 
                 // For assistant messages, render Markdown
                 if item.item_type == HistoryType::Assistant {
-                    let md_lines = render_markdown(&item.content, md_theme);
+                    let trimmed_content = item.content.trim_matches('\n');
+                    let md_lines = render_markdown(trimmed_content, md_theme);
                     for (i, md_line) in md_lines.into_iter().enumerate() {
                         let prefix = if i == 0 { icon } else { "  " };
                         let mut spans = vec![Span::styled(prefix, prefix_style)];
@@ -1304,14 +1305,15 @@ fn draw_history(frame: &mut Frame, state: &mut AIScreenState, area: Rect, theme:
         }
     }).collect();
 
-    // Calculate total wrapped lines by simulating ratatui's greedy word-wrap behavior
+    // Use ratatui's Paragraph::line_count() for accurate wrapped line calculation
     let width = inner.width as usize;
-    let total_lines: usize = if width == 0 {
-        lines.len()
+    let raw_line_count = lines.len();
+    let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false });
+    let total_lines = if width == 0 {
+        raw_line_count
     } else {
-        lines.iter().map(|line| {
-            estimate_wrapped_lines(line, width)
-        }).sum()
+        paragraph.line_count(inner.width) as usize
     };
     let max_scroll = total_lines.saturating_sub(visible_height);
 
@@ -1321,7 +1323,7 @@ fn draw_history(frame: &mut Frame, state: &mut AIScreenState, area: Rect, theme:
     state.last_visible_height = visible_height;
     state.last_visible_width = width;
     // Debug: store actual lines count (before wrap calculation)
-    state.last_raw_lines = lines.len();
+    state.last_raw_lines = raw_line_count;
 
     // 스크롤 오프셋 정규화
     let effective_scroll = if state.scroll_offset == usize::MAX {
@@ -1343,10 +1345,8 @@ fn draw_history(frame: &mut Frame, state: &mut AIScreenState, area: Rect, theme:
         state.auto_scroll = true;
     }
 
-    // Use Paragraph's scroll method with Wrap
-    let paragraph = Paragraph::new(lines)
-        .wrap(Wrap { trim: false })
-        .scroll((effective_scroll as u16, 0));
+    // Apply scroll and render
+    let paragraph = paragraph.scroll((effective_scroll as u16, 0));
     frame.render_widget(paragraph, inner);
 
     // Show scroll indicator if there's more content
@@ -1581,113 +1581,6 @@ fn draw_input(frame: &mut Frame, state: &AIScreenState, area: Rect, theme: &Them
 }
 
 /// Estimate the number of wrapped lines for ratatui's greedy word-wrap
-/// This simulates ratatui's Wrap { trim: false } behavior
-fn estimate_wrapped_lines(line: &Line, width: usize) -> usize {
-    use unicode_width::UnicodeWidthStr;
-
-    if width == 0 {
-        return 1;
-    }
-
-    // Extract full text from all spans
-    let text: String = line.spans.iter()
-        .map(|span| span.content.as_ref())
-        .collect();
-
-    if text.is_empty() {
-        return 1;
-    }
-
-    // NBSP lines (used for empty line placeholders) render as exactly 1 row
-    // Regular whitespace-only lines would render as 2 rows with Wrap { trim: false }
-    // but we convert all empty lines to NBSP, so they render as 1 row
-    if !text.is_empty() && text.trim().is_empty() {
-        return 1;  // NBSP and whitespace lines now render as 1 row
-    }
-
-    // Calculate total width using unicode-width
-    let text_width = UnicodeWidthStr::width(text.as_str());
-
-    // If text fits in one line, return 1
-    if text_width <= width {
-        return 1;
-    }
-
-    // Simulate greedy word-wrap (like ratatui's WordWrapper)
-    let mut line_count = 1;
-    let mut current_width = 0;
-
-    // Process word by word, preserving whitespace behavior
-    let chars = text.chars();
-    let mut word_width = 0;
-    let mut in_word = false;
-
-    for c in chars {
-        let char_width = UnicodeWidthStr::width(c.to_string().as_str());
-
-        if c.is_whitespace() {
-            // End of word - add word + whitespace to current line
-            if in_word {
-                if current_width + word_width > width {
-                    // Word doesn't fit, start new line
-                    if word_width > width {
-                        // Word is longer than width, needs multiple lines
-                        if current_width == 0 {
-                            // Word starts at line beginning
-                            line_count += word_width.div_ceil(width);
-                            current_width = word_width % width;
-                        } else {
-                            // Word starts mid-line, fills remaining then wraps
-                            let remaining_space = width - current_width;
-                            let remaining_word = word_width.saturating_sub(remaining_space);
-                            line_count += 1 + remaining_word.div_ceil(width);
-                            current_width = remaining_word % width;
-                        }
-                    } else {
-                        line_count += 1;
-                        current_width = word_width;
-                    }
-                } else {
-                    current_width += word_width;
-                }
-                word_width = 0;
-                in_word = false;
-            }
-
-            // Add whitespace
-            if current_width + char_width > width {
-                line_count += 1;
-                current_width = char_width;
-            } else {
-                current_width += char_width;
-            }
-        } else {
-            // Building a word
-            in_word = true;
-            word_width += char_width;
-        }
-    }
-
-    // Handle last word
-    if in_word && word_width > 0 && current_width + word_width > width {
-        if word_width > width {
-            if current_width == 0 {
-                // Word fills from line start, replace initial line_count
-                line_count = word_width.div_ceil(width);
-            } else {
-                // Word wraps from mid-line
-                let remaining_space = width - current_width;
-                let remaining_word = word_width.saturating_sub(remaining_space);
-                line_count += remaining_word.div_ceil(width);
-            }
-        } else {
-            line_count += 1;
-        }
-    }
-
-    line_count
-}
-
 /// Helper function to scroll up by a given amount
 fn scroll_up(state: &mut AIScreenState, amount: usize) {
     // 센티널 값(usize::MAX) 처리: 실제 max_scroll 값으로 정규화
@@ -2465,127 +2358,6 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_wrapped_lines_vs_ratatui() {
-        use ratatui::{
-            backend::TestBackend,
-            Terminal,
-            widgets::{Paragraph, Wrap},
-            text::{Line, Span},
-            style::Style,
-            layout::Rect,
-        };
-
-        let width = 60u16;
-        let height = 50u16;
-
-        // Test cases with different line lengths and content
-        let test_cases: Vec<Line> = vec![
-            // Short line - should be 1 line
-            Line::from(vec![
-                Span::raw("> "),
-                Span::raw("Hello world"),
-            ]),
-            // Line that wraps once
-            Line::from(vec![
-                Span::raw("< "),
-                Span::raw("This is a longer response that should wrap to multiple lines when the terminal width is only 60 characters"),
-            ]),
-            // Empty line
-            Line::from(""),
-            // Line with Korean text (wide characters)
-            Line::from(vec![
-                Span::raw("> "),
-                Span::raw("안녕하세요 이것은 한글 테스트입니다. 한글은 2칸을 차지합니다."),
-            ]),
-            // Line with mixed content
-            Line::from(vec![
-                Span::raw("< "),
-                Span::styled("Bold text", Style::default()),
-                Span::raw(" and "),
-                Span::styled("italic text", Style::default()),
-                Span::raw(" mixed together in one line that might wrap"),
-            ]),
-            // Very long line without spaces (should force wrap)
-            Line::from(vec![
-                Span::raw("* "),
-                Span::raw("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            ]),
-        ];
-
-        let backend = TestBackend::new(width, height);
-        let mut terminal = Terminal::new(backend).unwrap();
-
-        // Render and count actual lines
-        terminal.draw(|frame| {
-            let area = Rect::new(0, 0, width, height);
-            let paragraph = Paragraph::new(test_cases.clone())
-                .wrap(Wrap { trim: false });
-            frame.render_widget(paragraph, area);
-        }).unwrap();
-
-        let buffer = terminal.backend().buffer();
-
-        // Count rendered lines by finding the last non-empty row
-        // (since we're rendering into a larger buffer, we need to find where content ends)
-        let mut last_content_row = 0;
-        for y in 0..height {
-            let mut has_content = false;
-            for x in 0..width {
-                let cell = buffer.cell((x, y)).unwrap();
-                if cell.symbol() != " " {
-                    has_content = true;
-                    break;
-                }
-            }
-            if has_content {
-                last_content_row = y;
-            }
-        }
-        // Total lines = last content row + 1 (0-indexed) + any trailing empty lines that are part of content
-        // For accurate counting, we should count total lines including empty ones
-        let rendered_lines = (last_content_row + 1) as usize;
-
-        // Calculate using estimate_wrapped_lines
-        let estimated_total: usize = test_cases.iter()
-            .map(|line| super::estimate_wrapped_lines(line, width as usize))
-            .sum();
-
-        println!("\n=== estimate_wrapped_lines vs ratatui ===");
-        println!("Width: {}", width);
-        println!("Estimated total: {}", estimated_total);
-        println!("Rendered lines: {}", rendered_lines);
-
-        // Print rendered content
-        println!("\nRendered content:");
-        for y in 0..height {
-            let mut row = String::new();
-            for x in 0..width {
-                let cell = buffer.cell((x, y)).unwrap();
-                row.push_str(cell.symbol());
-            }
-            let trimmed = row.trim_end();
-            if !trimmed.is_empty() {
-                println!("  Row {}: |{}|", y, trimmed);
-            }
-        }
-
-        // Print per-line breakdown
-        println!("\nPer-line breakdown:");
-        for (i, line) in test_cases.iter().enumerate() {
-            let text: String = line.spans.iter()
-                .map(|span| span.content.as_ref())
-                .collect();
-            let estimated = super::estimate_wrapped_lines(line, width as usize);
-            println!("  Line {}: estimated={}, text={:?}", i, estimated,
-                if text.len() > 50 { format!("{}...", &text[..50]) } else { text });
-        }
-
-        // Should match
-        assert_eq!(estimated_total, rendered_lines,
-            "Estimated ({}) should match rendered ({})", estimated_total, rendered_lines);
-    }
-
-    #[test]
     fn test_multiple_lines_with_empty() {
         use ratatui::{
             backend::TestBackend,
@@ -2647,167 +2419,12 @@ mod tests {
         assert!(row6.contains("Line 5"),
             "Line 5 should be at Row 6 (whitespace-only lines take 2 rows). Got: '{}'", row6.trim());
 
-        // Verify estimate_wrapped_lines matches
-        let estimated_total: usize = lines.iter()
-            .map(|line| super::estimate_wrapped_lines(line, width as usize))
-            .sum();
-        println!("Estimated total lines: {}", estimated_total);
-        assert_eq!(estimated_total, 7, "Estimated should be 7 (3 normal + 2*2 whitespace)");
-    }
-
-    #[test]
-    fn test_individual_line_wrap() {
-        use ratatui::{
-            backend::TestBackend,
-            Terminal,
-            widgets::{Paragraph, Wrap},
-            text::{Line, Span},
-            style::Style,
-            layout::Rect,
-        };
-
-        let width = 80u16;
-        let height = 10u16;
-
-        // Test individual lines
-        let test_lines: Vec<(&str, Line)> = vec![
-            ("empty string", Line::from("")),
-            ("two spaces", Line::from("  ")),
-            ("prefix only", Line::from(vec![Span::styled("  ", Style::default())])),
-            ("prefix + empty span", Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::raw(""),
-            ])),
-            ("normal short", Line::from("Hello world")),
-            ("long line", Line::from("This is a very long line that should definitely wrap when the terminal width is only 80 characters wide")),
-        ];
-
-        for (name, line) in test_lines {
-            let backend = TestBackend::new(width, height);
-            let mut terminal = Terminal::new(backend).unwrap();
-
-            terminal.draw(|frame| {
-                let area = Rect::new(0, 0, width, height);
-                let paragraph = Paragraph::new(vec![line.clone()])
-                    .wrap(Wrap { trim: false });
-                frame.render_widget(paragraph, area);
-            }).unwrap();
-
-            let buffer = terminal.backend().buffer();
-
-            // Count rows used
-            let mut rows_used = 0;
-            for y in 0..height {
-                // For the first line, always count it
-                // For subsequent lines, only count if there's actual visible content
-                if y == 0 {
-                    rows_used = 1;
-                } else {
-                    let mut has_visible = false;
-                    for x in 0..width {
-                        let cell = buffer.cell((x, y)).unwrap();
-                        if cell.symbol() != " " {
-                            has_visible = true;
-                            break;
-                        }
-                    }
-                    if has_visible {
-                        rows_used = y as usize + 1;
-                    }
-                }
-            }
-
-            let estimated = super::estimate_wrapped_lines(&line, width as usize);
-
-            let text: String = line.spans.iter()
-                .map(|span| span.content.as_ref())
-                .collect();
-
-            println!("{}: estimated={}, rows_used={}, text={:?}",
-                name, estimated, rows_used, text);
-
-            // Print actual buffer content for debugging
-            for y in 0..3.min(height) {
-                let mut row = String::new();
-                for x in 0..width {
-                    let cell = buffer.cell((x, y)).unwrap();
-                    row.push_str(cell.symbol());
-                }
-                println!("  Row {}: |{}|", y, row.trim_end());
-            }
-        }
-    }
-
-    #[test]
-    fn test_estimate_long_word_wrapping() {
-        use ratatui::{
-            backend::TestBackend,
-            Terminal,
-            widgets::{Paragraph, Wrap},
-            text::Line,
-            layout::Rect,
-        };
-
-        let width = 20u16;
-        let height = 20u16;
-
-        // Test cases: (description, text, expected_lines)
-        let test_cases: Vec<(&str, String, usize)> = vec![
-            // Long word at start (100 chars = 5 lines of 20)
-            ("100 char word alone", "a".repeat(100), 5),
-            // Long word at start (21 chars = 2 lines)
-            ("21 char word alone", "a".repeat(21), 2),
-            // Long word with prefix: "ab " (3) + 100 c's
-            // Line 1: "ab " + 17 c's = 20, Lines 2-6: 83 c's = 5 lines, Total: 6
-            ("prefix + 100 char word", format!("ab {}", "c".repeat(100)), 6),
-            // Two long words: 100 a's + " " + 100 b's
-            // Lines 1-5: 100 a's, Line 6: " " + 19 b's, Lines 7-11: 81 b's = 11 total
-            ("two 100 char words", format!("{} {}", "a".repeat(100), "b".repeat(100)), 11),
-            // Short + long word: "abc " (4) + 100 d's
-            // Line 1: "abc " + 16 d's = 20, Lines 2-6: 84 d's = 5 lines, Total: 6
-            ("short + long word", format!("abc {}", "d".repeat(100)), 6),
-        ];
-
-        for (name, text, expected) in test_cases {
-            let line = Line::from(text.as_str());
-            let estimated = super::estimate_wrapped_lines(&line, width as usize);
-
-            // Also verify against actual ratatui rendering
-            let backend = TestBackend::new(width, height);
-            let mut terminal = Terminal::new(backend).unwrap();
-
-            terminal.draw(|frame| {
-                let area = Rect::new(0, 0, width, height);
-                let paragraph = Paragraph::new(vec![line.clone()])
-                    .wrap(Wrap { trim: false });
-                frame.render_widget(paragraph, area);
-            }).unwrap();
-
-            let buffer = terminal.backend().buffer();
-
-            // Count actual rows used by finding last row with content
-            let mut actual_rows = 0;
-            for y in 0..height {
-                let mut has_content = false;
-                for x in 0..width {
-                    let cell = buffer.cell((x, y)).unwrap();
-                    if cell.symbol() != " " {
-                        has_content = true;
-                        break;
-                    }
-                }
-                if has_content {
-                    actual_rows = y + 1;
-                }
-            }
-
-            println!("{}: estimated={}, actual={}, expected={}", name, estimated, actual_rows, expected);
-
-            assert_eq!(estimated, actual_rows as usize,
-                "{}: estimated ({}) should match actual ({})", name, estimated, actual_rows);
-            assert_eq!(estimated, expected,
-                "{}: estimated ({}) should match expected ({})", name, estimated, expected);
-        }
+        // Verify Paragraph::line_count matches
+        let line_count_total = Paragraph::new(lines.clone())
+            .wrap(Wrap { trim: false })
+            .line_count(width) as usize;
+        println!("Paragraph::line_count: {}", line_count_total);
+        assert_eq!(line_count_total, 7, "line_count should be 7 (3 normal + 2*2 whitespace)");
     }
 
     #[test]
@@ -2885,47 +2502,16 @@ fn main() {
             }
         }
 
-        // Calculate using estimate_wrapped_lines
-        let estimated_total: usize = lines_with_prefix.iter()
-            .map(|line| super::estimate_wrapped_lines(line, width as usize))
-            .sum();
+        // Calculate using Paragraph::line_count()
+        let line_count_total = Paragraph::new(lines_with_prefix.clone())
+            .wrap(Wrap { trim: false })
+            .line_count(width) as usize;
 
         println!("\n=== Markdown rendering test ===");
         println!("Width: {}", width);
         println!("Raw lines (before wrap): {}", lines_with_prefix.len());
-        println!("Estimated wrapped lines: {}", estimated_total);
+        println!("Paragraph::line_count: {}", line_count_total);
         println!("Actual rendered lines: {}", rendered_lines);
-
-        // Print rendered content
-        println!("\nRendered markdown:");
-        for y in 0..height {
-            let mut row = String::new();
-            for x in 0..width {
-                let cell = buffer.cell((x, y)).unwrap();
-                row.push_str(cell.symbol());
-            }
-            let trimmed = row.trim_end();
-            if !trimmed.is_empty() {
-                println!("  Row {:2}: |{}|", y, trimmed);
-            }
-        }
-
-        // Per-line breakdown
-        println!("\nPer-line breakdown:");
-        for (i, line) in lines_with_prefix.iter().enumerate() {
-            let text: String = line.spans.iter()
-                .map(|span| span.content.as_ref())
-                .collect();
-            let estimated = super::estimate_wrapped_lines(line, width as usize);
-            let display = if text.len() > 60 { format!("{}...", &text[..60]) } else { text };
-            println!("  Line {:2}: est={}, text={:?}", i, estimated, display);
-        }
-
-        // Note: The rendered_lines count may differ due to how we count rows
-        // The important thing is that estimate_wrapped_lines is accurate per-line
-        // which was verified in test_individual_line_wrap
-        println!("\nNote: Individual line estimates are verified in test_individual_line_wrap");
-        println!("Total estimated: {}, last content row: {}", estimated_total, rendered_lines);
     }
 
     #[test]
@@ -2960,16 +2546,16 @@ fn main() {
         }
         lines_with_prefix.push(Line::from("")); // Empty line after message
 
-        // Calculate using estimate_wrapped_lines
-        let total_lines: usize = lines_with_prefix.iter()
-            .map(|line| super::estimate_wrapped_lines(line, width as usize))
-            .sum();
+        // Calculate using Paragraph::line_count()
+        let paragraph = Paragraph::new(lines_with_prefix.clone())
+            .wrap(Wrap { trim: false });
+        let total_lines = paragraph.line_count(width) as usize;
 
         let visible_height = height as usize;
         let max_scroll = total_lines.saturating_sub(visible_height);
 
         println!("\n=== Scroll to bottom test ===");
-        println!("Total lines (estimated): {}", total_lines);
+        println!("Total lines: {}", total_lines);
         println!("Visible height: {}", visible_height);
         println!("Max scroll: {}", max_scroll);
 
@@ -3085,10 +2671,10 @@ Let me know what you'd like to do!
         let visible_height = inner.height as usize;
         let width = inner.width as usize;
 
-        // Calculate total lines
-        let total_lines: usize = lines.iter()
-            .map(|line| super::estimate_wrapped_lines(line, width))
-            .sum();
+        // Calculate total lines using Paragraph::line_count()
+        let paragraph = Paragraph::new(lines.clone())
+            .wrap(Wrap { trim: false });
+        let total_lines = paragraph.line_count(inner.width) as usize;
 
         let max_scroll = total_lines.saturating_sub(visible_height);
 
@@ -3098,18 +2684,6 @@ Let me know what you'd like to do!
         println!("Total wrapped lines: {}", total_lines);
         println!("Visible height: {}", visible_height);
         println!("Max scroll: {}", max_scroll);
-
-        // Debug: print each line's content
-        println!("\nLines content:");
-        for (i, line) in lines.iter().enumerate() {
-            let text: String = line.spans.iter()
-                .map(|span| span.content.as_ref())
-                .collect();
-            let est = super::estimate_wrapped_lines(line, width);
-            println!("  Line {:2}: est={}, spans={}, text={:?}",
-                i, est, line.spans.len(),
-                if text.len() > 50 { format!("{}...", &text[..50]) } else { text });
-        }
 
         // Render at max_scroll
         let backend = TestBackend::new(total_width, total_height);
