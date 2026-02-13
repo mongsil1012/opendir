@@ -361,6 +361,15 @@ pub fn draw_dialog(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, th
     let y = area.y + (area.height.saturating_sub(max_height)) / 2;
     let dialog_area = Rect::new(x, y, width, height);
 
+    // Skip rendering entirely for progress dialog during initial delay (avoids empty box flicker)
+    if dialog.dialog_type == DialogType::Progress {
+        if let Some(ref progress) = app.file_operation_progress {
+            if progress.started_at.elapsed() < std::time::Duration::from_millis(200) {
+                return;
+            }
+        }
+    }
+
     // Clear the area
     frame.render_widget(Clear, dialog_area);
 
@@ -1587,11 +1596,6 @@ fn draw_progress_dialog(frame: &mut Frame, app: &App, area: Rect, theme: &Theme)
         Some(p) => p,
         None => return,
     };
-
-    // Don't show dialog for first 200ms to avoid flicker on fast operations
-    if progress.started_at.elapsed() < std::time::Duration::from_millis(200) {
-        return;
-    }
 
     let title = match progress.operation_type {
         FileOperationType::Copy => " Copying ",

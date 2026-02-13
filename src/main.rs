@@ -388,8 +388,10 @@ fn run_app<B: ratatui::backend::Backend>(
             .map(|p| p.is_active)
             .unwrap_or(false);
 
-        let poll_timeout = if app.current_screen == Screen::AIScreen || app.is_ai_mode() || is_file_info_calculating || is_image_loading || is_diff_comparing || is_progress_active {
-            Duration::from_millis(100) // Fast polling for spinner animation / progress updates
+        let poll_timeout = if is_progress_active {
+            Duration::from_millis(16) // ~60fps for smooth progress bar updates
+        } else if app.current_screen == Screen::AIScreen || app.is_ai_mode() || is_file_info_calculating || is_image_loading || is_diff_comparing {
+            Duration::from_millis(100) // Fast polling for spinner animation
         } else {
             Duration::from_millis(250)
         };
