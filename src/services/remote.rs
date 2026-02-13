@@ -140,7 +140,7 @@ impl std::fmt::Debug for RemoteContext {
 }
 
 /// SSH client handler for russh
-struct SshHandler;
+pub(crate) struct SshHandler;
 
 #[async_trait::async_trait]
 impl client::Handler for SshHandler {

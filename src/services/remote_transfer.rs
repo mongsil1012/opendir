@@ -2,10 +2,13 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc::Sender, Arc};
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
+
+use tokio::runtime::Runtime;
+use russh::{client, ChannelMsg, Disconnect};
 
 use crate::services::file_ops::ProgressMessage;
-use crate::services::remote::{RemoteAuth, RemoteProfile, SftpSession};
+use crate::services::remote::{RemoteAuth, RemoteProfile, SshHandler};
 
 /// Transfer direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +38,131 @@ fn has_rsync() -> bool {
         .unwrap_or(false)
 }
 
-/// Check if sshpass is available (for password auth with rsync/scp)
+/// Check if two remote profiles refer to the same server
+fn is_same_server(a: &RemoteProfile, b: &RemoteProfile) -> bool {
+    a.host == b.host && a.port == b.port && a.user == b.user
+}
+
+/// SSH command executor using russh library (no external ssh process needed).
+/// Connects once, executes multiple commands on the same connection,
+/// and disconnects automatically on drop.
+struct SshExec {
+    runtime: Runtime,
+    handle: client::Handle<SshHandler>,
+}
+
+impl SshExec {
+    /// Connect to remote server via russh and authenticate.
+    fn connect(profile: &RemoteProfile) -> Result<Self, String> {
+        let runtime = Runtime::new()
+            .map_err(|e| format!("Failed to create runtime: {}", e))?;
+
+        let profile = profile.clone();
+        let handle = runtime.block_on(async {
+            let config = client::Config {
+                inactivity_timeout: Some(std::time::Duration::from_secs(60)),
+                ..Default::default()
+            };
+
+            let mut ssh = client::connect(
+                Arc::new(config),
+                (profile.host.as_str(), profile.port),
+                SshHandler,
+            )
+            .await
+            .map_err(|e| format!("SSH connection failed: {}", e))?;
+
+            // Authenticate
+            let auth_result = match &profile.auth {
+                RemoteAuth::Password { password } => {
+                    ssh.authenticate_password(&profile.user, password)
+                        .await
+                        .map_err(|e| format!("Password auth failed: {}", e))?
+                }
+                RemoteAuth::KeyFile { path, passphrase } => {
+                    let key_path = if path.starts_with('~') {
+                        if let Some(home) = dirs::home_dir() {
+                            home.join(path.trim_start_matches('~').trim_start_matches('/'))
+                        } else {
+                            PathBuf::from(path)
+                        }
+                    } else {
+                        PathBuf::from(path)
+                    };
+
+                    let key_pair = if let Some(pass) = passphrase {
+                        russh_keys::load_secret_key(&key_path, Some(pass))
+                            .map_err(|e| format!("Failed to load key: {}", e))?
+                    } else {
+                        russh_keys::load_secret_key(&key_path, None)
+                            .map_err(|e| format!("Failed to load key: {}", e))?
+                    };
+
+                    ssh.authenticate_publickey(&profile.user, Arc::new(key_pair))
+                        .await
+                        .map_err(|e| format!("Key auth failed: {}", e))?
+                }
+            };
+
+            if !auth_result {
+                return Err("Authentication rejected by server".to_string());
+            }
+
+            Ok(ssh)
+        })?;
+
+        Ok(Self { runtime, handle })
+    }
+
+    /// Execute a command on the remote server.
+    /// Returns (success, stderr_string).
+    fn exec(&self, cmd: &str) -> Result<(bool, String), String> {
+        let cmd = cmd.to_string();
+        self.runtime.block_on(async {
+            let mut channel = self.handle.channel_open_session()
+                .await
+                .map_err(|e| format!("Failed to open channel: {}", e))?;
+
+            channel.exec(true, cmd)
+                .await
+                .map_err(|e| format!("Failed to exec command: {}", e))?;
+
+            let mut stderr_bytes = Vec::new();
+            let mut exit_status: Option<u32> = None;
+
+            while let Some(msg) = channel.wait().await {
+                match msg {
+                    ChannelMsg::ExtendedData { data, ext } => {
+                        if ext == 1 {
+                            stderr_bytes.extend_from_slice(&data);
+                        }
+                    }
+                    ChannelMsg::ExitStatus { exit_status: s } => {
+                        exit_status = Some(s);
+                    }
+                    _ => {}
+                }
+            }
+
+            let success = exit_status.map_or(false, |s| s == 0);
+            let stderr = String::from_utf8_lossy(&stderr_bytes).to_string();
+
+            Ok((success, stderr))
+        })
+    }
+}
+
+impl Drop for SshExec {
+    fn drop(&mut self) {
+        let _ = self.runtime.block_on(async {
+            self.handle
+                .disconnect(Disconnect::ByApplication, "", "en")
+                .await
+        });
+    }
+}
+
+/// Check if sshpass is available
 fn has_sshpass() -> bool {
     Command::new("sshpass")
         .arg("-V")
@@ -46,7 +173,7 @@ fn has_sshpass() -> bool {
         .unwrap_or(false)
 }
 
-/// Build SSH command option string for rsync/scp
+/// Build SSH command option string for rsync
 fn build_ssh_option(profile: &RemoteProfile) -> String {
     let mut ssh_cmd = String::from("ssh");
 
@@ -77,41 +204,77 @@ fn build_ssh_option(profile: &RemoteProfile) -> String {
     ssh_cmd
 }
 
-/// Build remote path string for rsync/scp: user@host:/path
+/// Build remote path string for rsync: user@host:/path
+/// Wraps remote path in single quotes to prevent remote shell interpretation.
 fn build_remote_spec(profile: &RemoteProfile, path: &str) -> String {
-    format!("{}@{}:{}", profile.user, profile.host, path)
+    // Single quotes prevent all shell interpretation.
+    // Only single quotes inside the path need escaping: ' → '\''
+    let escaped = path.replace('\'', "'\\''");
+    format!("{}@{}:'{}'", profile.user, profile.host, escaped)
 }
 
-/// Wrap command with sshpass if needed for password auth
-fn wrap_with_sshpass(mut cmd: Command, profile: &RemoteProfile) -> Command {
-    if let RemoteAuth::Password { ref password } = profile.auth {
-        if has_sshpass() {
-            let mut sshpass_cmd = Command::new("sshpass");
-            sshpass_cmd.arg("-p").arg(password);
-            // Reconstruct: sshpass -p PASSWORD original_command args...
-            let program = cmd.get_program().to_string_lossy().to_string();
-            let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect();
-            sshpass_cmd.arg(program);
-            for arg in args {
-                sshpass_cmd.arg(arg);
-            }
-            sshpass_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-            return sshpass_cmd;
-        }
+/// Create a temporary SSH_ASKPASS script for password authentication.
+/// Returns the script path. Caller must clean up with cleanup_askpass_script().
+fn create_askpass_script(password: &str) -> Result<PathBuf, String> {
+    let tmp_dir = dirs::home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".cokacdir")
+        .join("tmp");
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create tmp dir: {}", e))?;
+
+    let script_path = tmp_dir.join(format!("askpass_{}", std::process::id()));
+
+    // Escape single quotes in password: replace ' with '\''
+    let escaped = password.replace('\'', "'\\''");
+    let content = format!("#!/bin/sh\necho '{}'\n", escaped);
+
+    std::fs::write(&script_path, content)
+        .map_err(|e| format!("Failed to create askpass script: {}", e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Failed to set script permissions: {}", e))?;
     }
-    cmd
+
+    Ok(script_path)
 }
 
-/// Transfer files using rsync with progress reporting
+/// Remove the temporary askpass script
+fn cleanup_askpass_script(path: &PathBuf) {
+    let _ = std::fs::remove_file(path);
+}
+
+/// Transfer files using rsync with progress reporting.
+/// Uses --progress flag (compatible with GNU rsync and openrsync/macOS).
+/// For password auth: tries sshpass first, falls back to SSH_ASKPASS mechanism.
 fn transfer_rsync(
     config: &TransferConfig,
     cancel_flag: &Arc<AtomicBool>,
     tx: &Sender<ProgressMessage>,
 ) -> Result<(), String> {
     let ssh_option = build_ssh_option(&config.profile);
+    let total_files = config.source_files.len();
+    let mut completed_files: usize = 0;
+
+    // Prepare password auth mechanism
+    let needs_password = matches!(&config.profile.auth, RemoteAuth::Password { .. });
+    let use_sshpass = needs_password && has_sshpass();
+    let askpass_script = if needs_password && !use_sshpass {
+        if let RemoteAuth::Password { ref password } = config.profile.auth {
+            Some(create_askpass_script(password)?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     for source_file in &config.source_files {
         if cancel_flag.load(Ordering::Relaxed) {
+            if let Some(ref path) = askpass_script { cleanup_askpass_script(path); }
             return Ok(());
         }
 
@@ -130,10 +293,10 @@ fn transfer_rsync(
             }
         };
 
+        // Build rsync command with --progress (compatible with all rsync versions)
         let mut cmd = Command::new("rsync");
-        cmd.arg("-avz")
-            .arg("--info=progress2")
-            .arg("--no-inc-recursive")
+        cmd.arg("-a")
+            .arg("--progress")
             .arg("-e")
             .arg(&ssh_option)
             .arg(&src)
@@ -141,35 +304,90 @@ fn transfer_rsync(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut cmd = wrap_with_sshpass(cmd, &config.profile);
+        // Apply password auth
+        let mut cmd = if use_sshpass {
+            if let RemoteAuth::Password { ref password } = config.profile.auth {
+                let mut sshpass_cmd = Command::new("sshpass");
+                sshpass_cmd.arg("-p").arg(password);
+                let program = cmd.get_program().to_string_lossy().to_string();
+                let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+                sshpass_cmd.arg(program);
+                for arg in args {
+                    sshpass_cmd.arg(arg);
+                }
+                sshpass_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+                sshpass_cmd
+            } else {
+                cmd
+            }
+        } else if let Some(ref script_path) = askpass_script {
+            cmd.env("SSH_ASKPASS", script_path)
+                .env("SSH_ASKPASS_REQUIRE", "force")
+                .env("DISPLAY", ":0")
+                .stdin(Stdio::null());
+            cmd
+        } else {
+            cmd
+        };
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to start rsync: {}", e))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            if let Some(ref path) = askpass_script { cleanup_askpass_script(path); }
+            format!("Failed to start rsync: {}", e)
+        })?;
 
-        // Parse rsync progress output
+        // Parse rsync progress output.
+        // rsync --progress uses \r (carriage return) to update progress in-place,
+        // so we read byte-by-byte and split on both \r and \n.
         if let Some(stdout) = child.stdout.take() {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
+            let mut reader = BufReader::new(stdout);
+            let mut line_buf = Vec::new();
+            let mut byte_buf = [0u8; 1];
+            loop {
                 if cancel_flag.load(Ordering::Relaxed) {
                     let _ = child.kill();
-                    let _ = child.wait(); // Reap zombie process
+                    let _ = child.wait();
+                    if let Some(ref path) = askpass_script { cleanup_askpass_script(path); }
                     return Ok(());
                 }
 
-                if let Ok(line) = line {
-                    // rsync --info=progress2 output format: "  1,234,567  42%  1.23MB/s  0:01:23"
-                    if let Some(progress) = parse_rsync_progress(&line) {
-                        let _ = tx.send(ProgressMessage::FileProgress(progress.0, progress.1));
+                match std::io::Read::read(&mut reader, &mut byte_buf) {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        let b = byte_buf[0];
+                        if b == b'\r' || b == b'\n' {
+                            if !line_buf.is_empty() {
+                                let line = String::from_utf8_lossy(&line_buf).to_string();
+                                if let Some(progress) = parse_rsync_progress(&line) {
+                                    let _ = tx.send(ProgressMessage::FileProgress(progress.0, progress.1));
+                                }
+                                line_buf.clear();
+                            }
+                        } else {
+                            line_buf.push(b);
+                        }
                     }
+                    Err(_) => break,
+                }
+            }
+            // Process remaining data in buffer
+            if !line_buf.is_empty() {
+                let line = String::from_utf8_lossy(&line_buf).to_string();
+                if let Some(progress) = parse_rsync_progress(&line) {
+                    let _ = tx.send(ProgressMessage::FileProgress(progress.0, progress.1));
                 }
             }
         }
 
-        let status = child.wait().map_err(|e| format!("rsync wait failed: {}", e))?;
+        let status = child.wait().map_err(|e| {
+            if let Some(ref path) = askpass_script { cleanup_askpass_script(path); }
+            format!("rsync wait failed: {}", e)
+        })?;
 
         if status.success() {
+            completed_files += 1;
             let _ = tx.send(ProgressMessage::FileCompleted(file_name));
+            let _ = tx.send(ProgressMessage::TotalProgress(completed_files, total_files, 0, 0));
         } else {
-            // Try to capture stderr
             let stderr_msg = if let Some(mut stderr) = child.stderr.take() {
                 let mut buf = String::new();
                 let _ = std::io::Read::read_to_string(&mut stderr, &mut buf);
@@ -178,17 +396,21 @@ fn transfer_rsync(
                 format!("rsync exited with code {}", status.code().unwrap_or(-1))
             };
             let _ = tx.send(ProgressMessage::Error(file_name, stderr_msg.clone()));
+            if let Some(ref path) = askpass_script { cleanup_askpass_script(path); }
             return Err(stderr_msg);
         }
     }
 
+    // Cleanup
+    if let Some(ref path) = askpass_script { cleanup_askpass_script(path); }
+
     Ok(())
 }
 
-/// Parse rsync --info=progress2 output line
-/// Returns (transferred_bytes, total_bytes) if parseable
+/// Parse rsync --progress output line.
+/// Format: "  1,234,567  42%  1.23MB/s  0:01:23"
+/// Returns (transferred_bytes, total_bytes) if parseable.
 fn parse_rsync_progress(line: &str) -> Option<(u64, u64)> {
-    // Format: "  1,234,567  42%  1.23MB/s  0:01:23"
     let trimmed = line.trim();
     let parts: Vec<&str> = trimmed.split_whitespace().collect();
     if parts.len() >= 2 {
@@ -210,206 +432,106 @@ fn parse_rsync_progress(line: &str) -> Option<(u64, u64)> {
     None
 }
 
-/// Transfer files using scp (fallback when rsync not available)
-fn transfer_scp(
-    config: &TransferConfig,
-    cancel_flag: &Arc<AtomicBool>,
+/// Delete source files after a successful cut (move) transfer.
+/// If `source_profile` is Some, the source is remote (delete via SSH rm -rf).
+/// If `source_profile` is None, the source is local (delete via std::fs).
+fn delete_source_files_after_cut(
+    source_files: &[PathBuf],
+    source_base: &str,
+    source_profile: Option<&RemoteProfile>,
     tx: &Sender<ProgressMessage>,
-) -> Result<(), String> {
-    for source_file in &config.source_files {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Ok(());
-        }
+) {
+    match source_profile {
+        Some(profile) => delete_remote_source_files(profile, source_files, source_base, tx),
+        None => delete_local_source_files(source_files, source_base, tx),
+    }
+}
 
-        let file_name = source_file.display().to_string();
-        let _ = tx.send(ProgressMessage::FileStarted(file_name.clone()));
-
-        let source_full = format!("{}/{}", config.source_base.trim_end_matches('/'), source_file.display());
-        let target = &config.target_path;
-
-        let (src, dst) = match config.direction {
-            TransferDirection::LocalToRemote => {
-                (source_full, build_remote_spec(&config.profile, target))
-            }
-            TransferDirection::RemoteToLocal => {
-                (build_remote_spec(&config.profile, &source_full), target.clone())
-            }
+/// Delete local source files after cut
+fn delete_local_source_files(
+    source_files: &[PathBuf],
+    source_base: &str,
+    tx: &Sender<ProgressMessage>,
+) {
+    for source_file in source_files {
+        let full_path = PathBuf::from(source_base).join(source_file);
+        let result = if full_path.is_dir() {
+            std::fs::remove_dir_all(&full_path)
+        } else {
+            std::fs::remove_file(&full_path)
         };
-
-        let mut cmd = Command::new("scp");
-        cmd.arg("-r"); // Recursive for directories
-
-        // Port
-        if config.profile.port != 22 {
-            cmd.arg("-P").arg(config.profile.port.to_string());
-        }
-
-        // Key file
-        if let RemoteAuth::KeyFile { ref path, .. } = config.profile.auth {
-            let expanded = if path.starts_with('~') {
-                if let Some(home) = dirs::home_dir() {
-                    home.join(path.trim_start_matches('~').trim_start_matches('/'))
-                        .display()
-                        .to_string()
-                } else {
-                    path.clone()
-                }
-            } else {
-                path.clone()
-            };
-            cmd.arg("-i").arg(expanded);
-        }
-
-        cmd.arg("-o").arg("StrictHostKeyChecking=no")
-            .arg("-o").arg("UserKnownHostsFile=/dev/null")
-            .arg("-o").arg("LogLevel=ERROR")
-            .arg(&src)
-            .arg(&dst)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let mut cmd = wrap_with_sshpass(cmd, &config.profile);
-
-        let output = cmd.output().map_err(|e| format!("Failed to start scp: {}", e))?;
-
-        if output.status.success() {
-            let _ = tx.send(ProgressMessage::FileCompleted(file_name));
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            let _ = tx.send(ProgressMessage::Error(file_name.clone(), stderr.clone()));
-            return Err(format!("scp failed for '{}': {}", file_name, stderr));
+        if let Err(e) = result {
+            let _ = tx.send(ProgressMessage::Error(
+                source_file.display().to_string(),
+                format!("Failed to delete source: {}", e),
+            ));
         }
     }
-
-    Ok(())
 }
 
-/// Transfer files using SFTP (fallback when sshpass not available for password auth)
-fn transfer_sftp(
-    config: &TransferConfig,
-    cancel_flag: &Arc<AtomicBool>,
+/// Delete remote source files via russh SSH exec (rm -rf)
+fn delete_remote_source_files(
+    profile: &RemoteProfile,
+    source_files: &[PathBuf],
+    source_base: &str,
     tx: &Sender<ProgressMessage>,
-) -> Result<(), String> {
-    // Create a new SFTP session for this transfer
-    let session = SftpSession::connect(&config.profile)
-        .map_err(|e| format!("SFTP connection failed: {}", e))?;
+) {
+    // Build rm -rf paths
+    let mut rm_paths = Vec::new();
+    for source_file in source_files {
+        let full_path = format!(
+            "{}/{}",
+            source_base.trim_end_matches('/'),
+            source_file.display()
+        );
+        let escaped = full_path.replace('\'', "'\\''");
+        rm_paths.push(format!("'{}'", escaped));
+    }
 
-    for source_file in &config.source_files {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Ok(());
+    if rm_paths.is_empty() {
+        return;
+    }
+
+    let rm_cmd = format!("rm -rf {}", rm_paths.join(" "));
+
+    let ssh = match SshExec::connect(profile) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = tx.send(ProgressMessage::Error(
+                String::new(),
+                format!("Failed to connect for source deletion: {}", e),
+            ));
+            return;
         }
+    };
 
-        let file_name = source_file.display().to_string();
-        let _ = tx.send(ProgressMessage::FileStarted(file_name.clone()));
-
-        let source_full = format!("{}/{}", config.source_base.trim_end_matches('/'), source_file.display());
-        let target = &config.target_path;
-
-        match config.direction {
-            TransferDirection::RemoteToLocal => {
-                let target_path = format!("{}/{}", target.trim_end_matches('/'), source_file.display());
-
-                if let Some(parent) = std::path::Path::new(&target_path).parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-
-                // Check if source is a directory on remote
-                match session.list_dir(&source_full) {
-                    Ok(_) => {
-                        let _ = std::fs::create_dir_all(&target_path);
-                        sftp_download_dir_recursive(&session, &source_full, &target_path, cancel_flag, tx)?;
-                    }
-                    Err(_) => {
-                        session.download_file(&source_full, &target_path)?;
-                    }
-                }
-            }
-            TransferDirection::LocalToRemote => {
-                let target_path = format!("{}/{}", target.trim_end_matches('/'), source_file.display());
-                let local_path = std::path::Path::new(&source_full);
-
-                if local_path.is_dir() {
-                    let _ = session.mkdir(&target_path);
-                    sftp_upload_dir_recursive(&session, local_path, &target_path, cancel_flag, tx)?;
-                } else {
-                    session.upload_file(&source_full, &target_path)?;
-                }
+    match ssh.exec(&rm_cmd) {
+        Ok((success, stderr)) => {
+            if !success {
+                let _ = tx.send(ProgressMessage::Error(
+                    String::new(),
+                    format!("Failed to delete remote source: {}", stderr.trim()),
+                ));
             }
         }
-
-        let _ = tx.send(ProgressMessage::FileCompleted(file_name));
-    }
-
-    Ok(())
-}
-
-/// Recursively download a remote directory via SFTP
-fn sftp_download_dir_recursive(
-    session: &SftpSession,
-    remote_dir: &str,
-    local_dir: &str,
-    cancel_flag: &Arc<AtomicBool>,
-    tx: &Sender<ProgressMessage>,
-) -> Result<(), String> {
-    let entries = session.list_dir(remote_dir)
-        .map_err(|e| format!("Failed to list '{}': {}", remote_dir, e))?;
-
-    for entry in entries {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        let remote_path = format!("{}/{}", remote_dir.trim_end_matches('/'), entry.name);
-        let local_path = format!("{}/{}", local_dir.trim_end_matches('/'), entry.name);
-
-        if entry.is_directory {
-            let _ = std::fs::create_dir_all(&local_path);
-            sftp_download_dir_recursive(session, &remote_path, &local_path, cancel_flag, tx)?;
-        } else {
-            session.download_file(&remote_path, &local_path)?;
+        Err(e) => {
+            let _ = tx.send(ProgressMessage::Error(
+                String::new(),
+                format!("Failed to run SSH for source deletion: {}", e),
+            ));
         }
     }
-
-    Ok(())
 }
 
-/// Recursively upload a local directory via SFTP
-fn sftp_upload_dir_recursive(
-    session: &SftpSession,
-    local_dir: &std::path::Path,
-    remote_dir: &str,
-    cancel_flag: &Arc<AtomicBool>,
-    tx: &Sender<ProgressMessage>,
-) -> Result<(), String> {
-    let entries = std::fs::read_dir(local_dir)
-        .map_err(|e| format!("Failed to read dir '{}': {}", local_dir.display(), e))?;
-
-    for entry in entries {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let local_path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        let remote_path = format!("{}/{}", remote_dir.trim_end_matches('/'), name);
-
-        if local_path.is_dir() {
-            let _ = session.mkdir(&remote_path);
-            sftp_upload_dir_recursive(session, &local_path, &remote_path, cancel_flag, tx)?;
-        } else {
-            session.upload_file(&local_path.to_string_lossy().as_ref(), &remote_path)?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Main transfer function - tries rsync first, falls back to scp, then SFTP
+/// Main transfer function — always uses rsync
+/// When `is_cut` is true, source files are deleted after successful transfer.
+/// `source_profile` is needed when the source is remote (for SSH rm deletion).
 pub fn transfer_files_with_progress(
     config: TransferConfig,
     cancel_flag: Arc<AtomicBool>,
     tx: Sender<ProgressMessage>,
+    is_cut: bool,
+    source_profile: Option<RemoteProfile>,
 ) {
     let total_files = config.source_files.len();
 
@@ -418,44 +540,105 @@ pub fn transfer_files_with_progress(
         total_files
     )));
 
-    // Check if we need sshpass for external tools (rsync/scp)
-    let needs_sshpass = matches!(&config.profile.auth, RemoteAuth::Password { .. });
-    let has_sshpass = needs_sshpass && has_sshpass();
-    let use_external_tools = !needs_sshpass || has_sshpass;
+    if !has_rsync() {
+        let _ = tx.send(ProgressMessage::Error(
+            String::new(),
+            "rsync is not installed. Please install rsync to transfer files.".to_string(),
+        ));
+        let _ = tx.send(ProgressMessage::Completed(0, total_files));
+        return;
+    }
 
     let _ = tx.send(ProgressMessage::PrepareComplete);
+    let _ = tx.send(ProgressMessage::TotalProgress(0, total_files, 0, 0));
 
-    let result = if use_external_tools {
-        // Can use rsync/scp (either key auth or password with sshpass)
-        if has_rsync() {
-            transfer_rsync(&config, &cancel_flag, &tx)
-        } else {
-            transfer_scp(&config, &cancel_flag, &tx)
-        }
-    } else {
-        // Password auth without sshpass — fall back to SFTP
-        transfer_sftp(&config, &cancel_flag, &tx)
-    };
+    let result = transfer_rsync(&config, &cancel_flag, &tx);
 
     match result {
         Ok(_) => {
             if cancel_flag.load(Ordering::Relaxed) {
                 let _ = tx.send(ProgressMessage::Completed(0, 0));
             } else {
+                // Delete source files if this is a cut (move) operation
+                if is_cut {
+                    delete_source_files_after_cut(
+                        &config.source_files,
+                        &config.source_base,
+                        source_profile.as_ref(),
+                        &tx,
+                    );
+                }
                 let _ = tx.send(ProgressMessage::Completed(total_files, 0));
             }
         }
         Err(ref msg) => {
-            // Ensure error is sent via channel (some paths may not send it)
             let _ = tx.send(ProgressMessage::Error(String::new(), msg.clone()));
             let _ = tx.send(ProgressMessage::Completed(0, total_files));
         }
     }
 }
 
+/// Transfer files within the same remote server using cp -a (copy) or mv (move) via russh SSH exec.
+fn transfer_same_server(
+    profile: &RemoteProfile,
+    source_files: &[PathBuf],
+    source_base: &str,
+    target_path: &str,
+    cancel_flag: &Arc<AtomicBool>,
+    tx: &Sender<ProgressMessage>,
+    is_cut: bool,
+) -> Result<(), String> {
+    let total_files = source_files.len();
+    let mut completed_files: usize = 0;
+
+    let ssh = SshExec::connect(profile)?;
+
+    for source_file in source_files {
+        if cancel_flag.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let file_name = source_file.display().to_string();
+        let _ = tx.send(ProgressMessage::FileStarted(file_name.clone()));
+
+        let source_full = format!(
+            "{}/{}",
+            source_base.trim_end_matches('/'),
+            source_file.display()
+        );
+        let escaped_src = source_full.replace('\'', "'\\''");
+        let escaped_dst = target_path.replace('\'', "'\\''");
+
+        let remote_cmd = if is_cut {
+            format!("mv '{}' '{}'", escaped_src, escaped_dst)
+        } else {
+            format!("cp -a '{}' '{}'", escaped_src, escaped_dst)
+        };
+
+        let (success, stderr) = ssh.exec(&remote_cmd)?;
+
+        if success {
+            completed_files += 1;
+            let _ = tx.send(ProgressMessage::FileCompleted(file_name));
+            let _ = tx.send(ProgressMessage::TotalProgress(completed_files, total_files, 0, 0));
+        } else {
+            let err_msg = format!("Failed to {} '{}': {}",
+                if is_cut { "move" } else { "copy" },
+                file_name,
+                stderr.trim()
+            );
+            let _ = tx.send(ProgressMessage::Error(file_name, err_msg.clone()));
+            return Err(err_msg);
+        }
+    }
+
+    Ok(())
+}
+
 /// Transfer files between two remote servers via local temp directory
 /// Phase 1: Download from source remote to local temp
 /// Phase 2: Upload from local temp to target remote
+/// When `is_cut` is true, source files are deleted from source remote after successful upload.
 pub fn transfer_remote_to_remote_with_progress(
     source_profile: RemoteProfile,
     target_profile: RemoteProfile,
@@ -464,6 +647,7 @@ pub fn transfer_remote_to_remote_with_progress(
     target_path: String,
     cancel_flag: Arc<AtomicBool>,
     tx: Sender<ProgressMessage>,
+    is_cut: bool,
 ) {
     let total_files = source_files.len();
 
@@ -471,6 +655,46 @@ pub fn transfer_remote_to_remote_with_progress(
         "Transferring {} file(s) between remote servers...",
         total_files
     )));
+
+    // Same server optimization: use cp -a / mv directly via SSH
+    if is_same_server(&source_profile, &target_profile) {
+        let _ = tx.send(ProgressMessage::PrepareComplete);
+        let _ = tx.send(ProgressMessage::TotalProgress(0, total_files, 0, 0));
+
+        let result = transfer_same_server(
+            &source_profile,
+            &source_files,
+            &source_base,
+            &target_path,
+            &cancel_flag,
+            &tx,
+            is_cut,
+        );
+
+        match result {
+            Ok(_) => {
+                if cancel_flag.load(Ordering::Relaxed) {
+                    let _ = tx.send(ProgressMessage::Completed(0, 0));
+                } else {
+                    let _ = tx.send(ProgressMessage::Completed(total_files, 0));
+                }
+            }
+            Err(ref msg) => {
+                let _ = tx.send(ProgressMessage::Error(String::new(), msg.clone()));
+                let _ = tx.send(ProgressMessage::Completed(0, total_files));
+            }
+        }
+        return;
+    }
+
+    if !has_rsync() {
+        let _ = tx.send(ProgressMessage::Error(
+            String::new(),
+            "rsync is not installed. Please install rsync to transfer files.".to_string(),
+        ));
+        let _ = tx.send(ProgressMessage::Completed(0, total_files));
+        return;
+    }
 
     // Create temp directory under ~/.cokacdir/tmp/
     let temp_id = std::time::SystemTime::now()
@@ -492,29 +716,18 @@ pub fn transfer_remote_to_remote_with_progress(
     }
 
     let _ = tx.send(ProgressMessage::PrepareComplete);
+    let _ = tx.send(ProgressMessage::TotalProgress(0, total_files, 0, 0));
 
     // Phase 1: Download from source remote to local temp
     let download_config = TransferConfig {
         direction: TransferDirection::RemoteToLocal,
-        profile: source_profile,
+        profile: source_profile.clone(),
         source_files: source_files.clone(),
-        source_base,
+        source_base: source_base.clone(),
         target_path: temp_dir.display().to_string(),
     };
 
-    let needs_sshpass_dl = matches!(&download_config.profile.auth, RemoteAuth::Password { .. });
-    let has_sshpass_dl = needs_sshpass_dl && has_sshpass();
-    let use_external_dl = !needs_sshpass_dl || has_sshpass_dl;
-
-    let dl_result = if use_external_dl {
-        if has_rsync() {
-            transfer_rsync(&download_config, &cancel_flag, &tx)
-        } else {
-            transfer_scp(&download_config, &cancel_flag, &tx)
-        }
-    } else {
-        transfer_sftp(&download_config, &cancel_flag, &tx)
-    };
+    let dl_result = transfer_rsync(&download_config, &cancel_flag, &tx);
 
     if let Err(ref msg) = dl_result {
         let _ = tx.send(ProgressMessage::Error(
@@ -536,24 +749,12 @@ pub fn transfer_remote_to_remote_with_progress(
     let upload_config = TransferConfig {
         direction: TransferDirection::LocalToRemote,
         profile: target_profile,
-        source_files,
+        source_files: source_files.clone(),
         source_base: temp_dir.display().to_string(),
         target_path,
     };
 
-    let needs_sshpass_ul = matches!(&upload_config.profile.auth, RemoteAuth::Password { .. });
-    let has_sshpass_ul = needs_sshpass_ul && has_sshpass();
-    let use_external_ul = !needs_sshpass_ul || has_sshpass_ul;
-
-    let ul_result = if use_external_ul {
-        if has_rsync() {
-            transfer_rsync(&upload_config, &cancel_flag, &tx)
-        } else {
-            transfer_scp(&upload_config, &cancel_flag, &tx)
-        }
-    } else {
-        transfer_sftp(&upload_config, &cancel_flag, &tx)
-    };
+    let ul_result = transfer_rsync(&upload_config, &cancel_flag, &tx);
 
     // Cleanup temp directory
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -563,6 +764,15 @@ pub fn transfer_remote_to_remote_with_progress(
             if cancel_flag.load(Ordering::Relaxed) {
                 let _ = tx.send(ProgressMessage::Completed(0, 0));
             } else {
+                // Delete source files from source remote if this is a cut
+                if is_cut {
+                    delete_source_files_after_cut(
+                        &source_files,
+                        &source_base,
+                        Some(&source_profile),
+                        &tx,
+                    );
+                }
                 let _ = tx.send(ProgressMessage::Completed(total_files, 0));
             }
         }

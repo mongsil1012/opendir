@@ -2336,7 +2336,7 @@ impl Theme {
     "fg_inverse": {},
     "__accent__": "정보성 강조색. 링크, 컬럼 헤더, 활성 상태 표시 등 사용자 주의를 끄는 요소에 사용. 중립적이면서 눈에 띄는 색상. process_manager.column_header, search_result.column_header 등에서 참조",
     "accent": {},
-    "__shortcut__": "단축키 표시 색상. 키보드 단축키(F1, Ctrl+C 등)를 본문 텍스트와 구분하여 표시. function_bar.key, editor.footer_key, dialog.help_key_text 등에서 참조. fg와 구분되면서 bg 위에서 잘 보여야 함",
+    "__shortcut__": "단축키 표시 색상. 키보드 단축키(Ctrl+C, Space 등)를 본문 텍스트와 구분하여 표시. function_bar.key, editor.footer_key, dialog.help_key_text 등에서 참조. fg와 구분되면서 bg 위에서 잘 보여야 함",
     "shortcut": {},
     "__positive__": "긍정/성공 상태 색상. 작업 완료, 체크마크, 진행바 채움 등에 사용. state.success와 동일하거나 유사. system_info.bar_fill, advanced_search.checkbox_checked 등에서 참조",
     "positive": {},
@@ -2412,11 +2412,11 @@ impl Theme {
     "text_dim": {}
   }},
 
-  "__function_bar__": "=== 기능키 바: F1~F10 단축키 가이드. 화면 최하단에서 사용 가능한 명령어를 안내 ===",
+  "__function_bar__": "=== 단축키 바: 화면 최하단에서 사용 가능한 단축키를 안내 ===",
   "function_bar": {{
-    "__bg__": "기능키 바의 배경색. 화면 최하단에 위치하며 F1~F10 단축키 안내가 표시됨. panel.bg, status_bar.bg와 구분 가능해야 함. key, label이 이 위에 표시됨",
+    "__bg__": "단축키 바의 배경색. 화면 최하단에 위치하며 단축키 안내가 표시됨. panel.bg, status_bar.bg와 구분 가능해야 함. key, label이 이 위에 표시됨",
     "bg": {},
-    "__key__": "단축키 텍스트 색상 (F1, F2 등). bg 위에 표시됨. label과 쌍을 이루며 단축키 부분을 강조. label보다 높은 시각적 우선순위로 키를 먼저 인식할 수 있어야 함. palette.shortcut 참조",
+    "__key__": "단축키 텍스트 색상 (h, e, x 등). bg 위에 표시됨. label과 쌍을 이루며 단축키 부분을 강조. label보다 높은 시각적 우선순위로 키를 먼저 인식할 수 있어야 함. palette.shortcut 참조",
     "key": {},
     "__label__": "단축키 설명 텍스트 (Help, Menu 등). bg 위에 표시됨. key 옆에 위치하여 해당 키의 기능 설명. key보다 낮은 시각적 강조",
     "label": {}
@@ -2586,7 +2586,7 @@ impl Theme {
     "help_text": {}
   }},
 
-  "__editor__": "=== 파일 에디터: F4로 열리는 내장 텍스트 편집기. 코드 편집, 설정 파일 수정 등에 사용. 전체 화면을 차지하는 뷰 ===",
+  "__editor__": "=== 파일 에디터: 내장 텍스트 편집기. 코드 편집, 설정 파일 수정 등에 사용. 전체 화면을 차지하는 뷰 ===",
   "editor": {{
     "__bg__": "에디터 편집 영역의 배경색. 코드/텍스트가 표시되는 메인 영역. text, syntax 하이라이팅, line_number, cursor 등 모든 편집 요소가 이 위에 렌더링됨. 장시간 편집에 적합한 눈의 피로가 적은 색상 권장",
     "bg": {},
@@ -2664,7 +2664,7 @@ impl Theme {
     "normal": {}
   }},
 
-  "__viewer__": "=== 파일 뷰어: F3으로 열리는 읽기 전용 파일 보기. 텍스트/헥스 모드 지원. 전체 화면을 차지하는 뷰 ===",
+  "__viewer__": "=== 파일 뷰어: 읽기 전용 파일 보기. 텍스트/헥스 모드 지원. 전체 화면을 차지하는 뷰 ===",
   "viewer": {{
     "__bg__": "뷰어의 기본 배경색. 파일 내용이 표시되는 메인 영역. text, syntax 하이라이팅, line_number 등이 이 위에 렌더링됨. editor.bg와 동일하거나 유사 가능",
     "bg": {},
@@ -2932,7 +2932,7 @@ impl Theme {
     "section_title": {},
     "__section_decorator__": "섹션 제목 장식선(──, === 등). bg 위에 표시됨. 섹션 간 구분을 시각화. section_title보다 낮은 강조",
     "section_decorator": {},
-    "__key__": "단축키 텍스트(F1, Ctrl+C, Space 등). bg 위에 표시됨. description과 쌍을 이룸. 키 부분을 강조하여 빠른 참조 가능. palette.shortcut 참조",
+    "__key__": "단축키 텍스트(Ctrl+C, Space 등). bg 위에 표시됨. description과 쌍을 이룸. 키 부분을 강조하여 빠른 참조 가능. palette.shortcut 참조",
     "key": {},
     "__key_highlight__": "특별히 강조되는 단축키. key 중에서 더 중요하거나 자주 사용되는 키. key와 다른 색상으로 추가 강조",
     "key_highlight": {},

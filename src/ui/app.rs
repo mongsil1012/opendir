@@ -679,7 +679,7 @@ impl FileOperationProgress {
                                 }
                             }
                             ProgressMessage::FileCompleted(_) => {
-                                self.current_file_progress = 1.0;
+                                self.current_file_progress = 0.0;
                             }
                             ProgressMessage::TotalProgress(completed_files, total_files, completed_bytes, total_bytes) => {
                                 self.completed_files = completed_files;
@@ -717,11 +717,12 @@ impl FileOperationProgress {
     }
 
     /// Get overall progress as percentage (0.0 ~ 1.0)
+    /// Incorporates partial progress of the currently transferring file
     pub fn overall_progress(&self) -> f64 {
         if self.total_bytes > 0 {
             self.completed_bytes as f64 / self.total_bytes as f64
         } else if self.total_files > 0 {
-            self.completed_files as f64 / self.total_files as f64
+            (self.completed_files as f64 + self.current_file_progress) / self.total_files as f64
         } else {
             0.0
         }
@@ -2716,6 +2717,7 @@ impl App {
                 &cancel_flag,
                 |downloaded, total| {
                     let _ = tx.send(file_ops::ProgressMessage::FileProgress(downloaded, total));
+                    let _ = tx.send(file_ops::ProgressMessage::TotalProgress(0, 1, downloaded, total));
                 },
             ) {
                 Ok(_) => {
@@ -3340,6 +3342,9 @@ impl App {
         let file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
 
         if source_remote || target_remote {
+            // Set total files count immediately for remote transfers
+            // (channel TotalProgress message from thread may arrive after first UI draw)
+            progress.total_files = file_paths.len();
             if source_remote && target_remote {
                 // Remote-to-remote: download to local temp, then upload
                 let source_profile = self.active_panel().remote_ctx.as_ref().map(|c| c.profile.clone());
@@ -3360,6 +3365,7 @@ impl App {
                                 target,
                                 cancel_flag,
                                 tx,
+                                false, // is_cut: copy operation
                             );
                         });
                     }
@@ -3397,7 +3403,9 @@ impl App {
                     };
 
                     thread::spawn(move || {
-                        remote_transfer::transfer_files_with_progress(config, cancel_flag, tx);
+                        remote_transfer::transfer_files_with_progress(
+                            config, cancel_flag, tx, false, None, // copy operation
+                        );
                     });
                 } else {
                     self.show_message("Error: Remote profile not found");
@@ -3464,10 +3472,6 @@ impl App {
 
     /// Execute move with progress dialog (with sensitive symlink check)
     pub fn execute_move_to_with_progress(&mut self, target_path: &Path) {
-        if self.active_panel().is_remote() {
-            self.show_message("Move is not supported on remote panels. Use copy instead.");
-            return;
-        }
         let files = self.get_operation_files();
         if files.is_empty() {
             self.show_message("No files selected");
@@ -3475,52 +3479,61 @@ impl App {
         }
 
         let source_path = self.active_panel().path.clone();
+        let source_remote = self.active_panel().is_remote();
+        let target_panel_idx = 1 - self.active_panel_index;
+        let target_remote = self.panels.get(target_panel_idx)
+            .map(|p| p.is_remote())
+            .unwrap_or(false);
 
-        // Check for sensitive symlinks
-        let sensitive_symlinks = file_ops::filter_sensitive_symlinks_for_copy(&source_path, &files);
+        // Skip sensitive symlink check for remote sources
+        if !source_remote {
+            let sensitive_symlinks = file_ops::filter_sensitive_symlinks_for_copy(&source_path, &files);
 
-        if !sensitive_symlinks.is_empty() {
-            // Show confirmation dialog
-            self.copy_exclude_state = Some(CopyExcludeState {
-                target_path: target_path.to_path_buf(),
-                excluded_paths: sensitive_symlinks,
-                scroll_offset: 0,
-                is_move: true,
-            });
-            self.dialog = Some(Dialog {
-                dialog_type: DialogType::CopyExcludeConfirm,
-                input: String::new(),
-                cursor_pos: 0,
-                message: String::new(),
-                completion: None,
-                selected_button: 0,
-                selection: None,
-            });
-            return;
+            if !sensitive_symlinks.is_empty() {
+                // Show confirmation dialog
+                self.copy_exclude_state = Some(CopyExcludeState {
+                    target_path: target_path.to_path_buf(),
+                    excluded_paths: sensitive_symlinks,
+                    scroll_offset: 0,
+                    is_move: true,
+                });
+                self.dialog = Some(Dialog {
+                    dialog_type: DialogType::CopyExcludeConfirm,
+                    input: String::new(),
+                    cursor_pos: 0,
+                    message: String::new(),
+                    completion: None,
+                    selected_button: 0,
+                    selection: None,
+                });
+                return;
+            }
         }
 
-        // Detect conflicts (files that already exist at destination)
-        let conflicts = self.detect_operation_conflicts(&source_path, target_path, &files);
+        // Skip conflict detection for remote transfers
+        if !source_remote && !target_remote {
+            let conflicts = self.detect_operation_conflicts(&source_path, target_path, &files);
 
-        if !conflicts.is_empty() {
-            // Create temporary clipboard for conflict resolution
-            let clipboard = Clipboard {
-                files: files.clone(),
-                source_path: source_path.clone(),
-                operation: ClipboardOperation::Cut,
-                source_remote_profile: None,
-            };
-            self.conflict_state = Some(ConflictState {
-                conflicts,
-                current_index: 0,
-                files_to_overwrite: Vec::new(),
-                files_to_skip: Vec::new(),
-                clipboard_backup: Some(clipboard),
-                is_move_operation: true,
-                target_path: target_path.to_path_buf(),
-            });
-            self.show_duplicate_conflict_dialog();
-            return;
+            if !conflicts.is_empty() {
+                // Create temporary clipboard for conflict resolution
+                let clipboard = Clipboard {
+                    files: files.clone(),
+                    source_path: source_path.clone(),
+                    operation: ClipboardOperation::Cut,
+                    source_remote_profile: None,
+                };
+                self.conflict_state = Some(ConflictState {
+                    conflicts,
+                    current_index: 0,
+                    files_to_overwrite: Vec::new(),
+                    files_to_skip: Vec::new(),
+                    clipboard_backup: Some(clipboard),
+                    is_move_operation: true,
+                    target_path: target_path.to_path_buf(),
+                });
+                self.show_duplicate_conflict_dialog();
+                return;
+            }
         }
 
         // No conflicts - proceed directly
@@ -3538,6 +3551,12 @@ impl App {
         let source_path = self.active_panel().path.clone();
         let target_path = target_path.to_path_buf();
 
+        let source_remote = self.active_panel().is_remote();
+        let target_panel_idx = 1 - self.active_panel_index;
+        let target_remote = self.panels.get(target_panel_idx)
+            .map(|p| p.is_remote())
+            .unwrap_or(false);
+
         // Create progress state
         let mut progress = FileOperationProgress::new(FileOperationType::Move);
         progress.is_active = true;
@@ -3550,18 +3569,96 @@ impl App {
         // Convert files to PathBuf
         let file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
 
-        // Start move in background thread (empty overwrite/skip sets for F6 dialog move)
-        thread::spawn(move || {
-            file_ops::move_files_with_progress(
-                file_paths,
-                &source_path,
-                &target_path,
-                HashSet::new(),
-                HashSet::new(),
-                cancel_flag,
-                tx,
-            );
-        });
+        if source_remote || target_remote {
+            // Remote move: use rsync transfer with is_cut=true (same pattern as copy)
+            progress.total_files = file_paths.len();
+            if source_remote && target_remote {
+                // Remote-to-remote move
+                let source_profile = self.active_panel().remote_ctx.as_ref().map(|c| c.profile.clone());
+                let target_profile = self.panels.get(target_panel_idx)
+                    .and_then(|p| p.remote_ctx.as_ref().map(|c| c.profile.clone()));
+
+                match (source_profile, target_profile) {
+                    (Some(src_prof), Some(tgt_prof)) => {
+                        let source_base = source_path.display().to_string();
+                        let target = target_path.display().to_string();
+
+                        thread::spawn(move || {
+                            remote_transfer::transfer_remote_to_remote_with_progress(
+                                src_prof,
+                                tgt_prof,
+                                file_paths,
+                                source_base,
+                                target,
+                                cancel_flag,
+                                tx,
+                                true, // is_cut
+                            );
+                        });
+                    }
+                    _ => {
+                        self.show_message("Error: Remote profile not found");
+                        return;
+                    }
+                }
+            } else {
+                // One-direction remote move
+                let profile = if source_remote {
+                    self.active_panel().remote_ctx.as_ref().map(|c| c.profile.clone())
+                } else {
+                    self.panels.get(target_panel_idx)
+                        .and_then(|p| p.remote_ctx.as_ref().map(|c| c.profile.clone()))
+                };
+
+                if let Some(profile) = profile {
+                    let direction = if source_remote {
+                        remote_transfer::TransferDirection::RemoteToLocal
+                    } else {
+                        remote_transfer::TransferDirection::LocalToRemote
+                    };
+
+                    // For cut: source_profile for remote source deletion
+                    let source_profile_for_delete = if source_remote {
+                        self.active_panel().remote_ctx.as_ref().map(|c| c.profile.clone())
+                    } else {
+                        None
+                    };
+
+                    let source_base = source_path.display().to_string();
+                    let target = target_path.display().to_string();
+
+                    let config = remote_transfer::TransferConfig {
+                        direction,
+                        profile,
+                        source_files: file_paths,
+                        source_base,
+                        target_path: target,
+                    };
+
+                    thread::spawn(move || {
+                        remote_transfer::transfer_files_with_progress(
+                            config, cancel_flag, tx, true, source_profile_for_delete,
+                        );
+                    });
+                } else {
+                    self.show_message("Error: Remote profile not found");
+                    return;
+                }
+            }
+        } else {
+            // Local-to-local move: use existing optimized move (rename)
+            thread::spawn(move || {
+                file_ops::move_files_with_progress(
+                    file_paths,
+                    &source_path,
+                    &target_path,
+                    HashSet::new(),
+                    HashSet::new(),
+                    cancel_flag,
+                    tx,
+                );
+            });
+        }
 
         // Store progress state and show dialog
         self.file_operation_progress = Some(progress);
@@ -3705,11 +3802,8 @@ impl App {
 
         // Remote involved — use remote transfer path (no conflict detection for remote)
         if source_is_remote || target_is_remote {
-            if clipboard.operation == ClipboardOperation::Cut {
-                self.clipboard = Some(clipboard);
-                self.show_message("Move (cut) is not supported for remote transfers");
-                return;
-            }
+            let is_cut = clipboard.operation == ClipboardOperation::Cut;
+            let op_type = if is_cut { FileOperationType::Move } else { FileOperationType::Copy };
 
             // Remote-to-remote: download to local temp, then upload
             if source_is_remote && target_is_remote {
@@ -3735,8 +3829,9 @@ impl App {
                 let source_base = clipboard.source_path.display().to_string();
                 let target = target_path.display().to_string();
 
-                let mut progress = FileOperationProgress::new(FileOperationType::Copy);
+                let mut progress = FileOperationProgress::new(op_type);
                 progress.is_active = true;
+                progress.total_files = file_paths.len();
                 let cancel_flag = progress.cancel_flag.clone();
                 let (tx, rx) = mpsc::channel();
                 progress.receiver = Some(rx);
@@ -3750,6 +3845,7 @@ impl App {
                         target,
                         cancel_flag,
                         tx,
+                        is_cut,
                     );
                 });
 
@@ -3764,7 +3860,10 @@ impl App {
                     selection: None,
                 });
 
-                self.clipboard = Some(clipboard);
+                // Keep clipboard for copy, consume for cut
+                if !is_cut {
+                    self.clipboard = Some(clipboard);
+                }
                 return;
             }
 
@@ -3786,14 +3885,24 @@ impl App {
                 remote_transfer::TransferDirection::LocalToRemote
             };
 
+            // For cut: determine source_profile for deletion
+            // RemoteToLocal: source is remote → pass source remote profile
+            // LocalToRemote: source is local → None
+            let source_profile_for_delete = if is_cut && source_is_remote {
+                clipboard.source_remote_profile.clone()
+            } else {
+                None
+            };
+
             let target_path = self.active_panel().path.clone();
             let valid_files: Vec<String> = clipboard.files.clone();
             let file_paths: Vec<PathBuf> = valid_files.iter().map(PathBuf::from).collect();
             let source_base = clipboard.source_path.display().to_string();
             let target = target_path.display().to_string();
 
-            let mut progress = FileOperationProgress::new(FileOperationType::Copy);
+            let mut progress = FileOperationProgress::new(op_type);
             progress.is_active = true;
+            progress.total_files = file_paths.len();
             let cancel_flag = progress.cancel_flag.clone();
             let (tx, rx) = mpsc::channel();
             progress.receiver = Some(rx);
@@ -3807,7 +3916,9 @@ impl App {
             };
 
             thread::spawn(move || {
-                remote_transfer::transfer_files_with_progress(config, cancel_flag, tx);
+                remote_transfer::transfer_files_with_progress(
+                    config, cancel_flag, tx, is_cut, source_profile_for_delete,
+                );
             });
 
             self.file_operation_progress = Some(progress);
@@ -3821,8 +3932,10 @@ impl App {
                 selection: None,
             });
 
-            // Keep clipboard for copy operations
-            self.clipboard = Some(clipboard);
+            // Keep clipboard for copy, consume for cut
+            if !is_cut {
+                self.clipboard = Some(clipboard);
+            }
             return;
         }
 
@@ -5436,7 +5549,23 @@ impl App {
                 panel.selected_index = 0;
                 panel.selected_files.clear();
                 panel.load_files();
-                self.show_message(&format!("Connected to {}@{}", profile.user, profile.host));
+
+                // Check if the requested path was valid
+                let path_failed = panel.remote_ctx.as_ref()
+                    .map(|ctx| matches!(ctx.status, ConnectionStatus::Disconnected(_)))
+                    .unwrap_or(false);
+
+                if path_failed {
+                    // Path doesn't exist — fallback to /
+                    let original_path = path.to_string();
+                    let panel = self.active_panel_mut();
+                    panel.path = PathBuf::from("/");
+                    panel.selected_index = 0;
+                    panel.load_files();
+                    self.show_message(&format!("Path not found: {} — moved to /", original_path));
+                } else {
+                    self.show_message(&format!("Connected to {}@{}", profile.user, profile.host));
+                }
             }
             Err(e) => {
                 self.show_message(&format!("Connection failed: {}", e));
