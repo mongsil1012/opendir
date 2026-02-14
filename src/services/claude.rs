@@ -6,6 +6,22 @@ use std::fs::OpenOptions;
 use regex::Regex;
 use serde_json::Value;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiCli {
+    Claude,
+    OpenCode,
+}
+
+fn preferred_ai_cli() -> Option<AiCli> {
+    if is_claude_available() {
+        Some(AiCli::Claude)
+    } else if is_opencode_available() {
+        Some(AiCli::OpenCode)
+    } else {
+        None
+    }
+}
+
 /// Debug logging helper (only active when COKACDIR_DEBUG=1)
 fn debug_log(msg: &str) {
     static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -73,13 +89,25 @@ pub fn execute_command(
     session_id: Option<&str>,
     working_dir: &str,
 ) -> ClaudeResponse {
-    let mut args = vec![
-        "-p".to_string(),
-        "--dangerously-skip-permissions".to_string(),
-        "--output-format".to_string(),
-        "json".to_string(),
-        "--append-system-prompt".to_string(),
-        r#"You are a terminal file manager assistant. Be concise. Focus on file operations. Respond in the same language as the user.
+    let Some(ai_cli) = preferred_ai_cli() else {
+        return ClaudeResponse {
+            success: false,
+            response: None,
+            session_id: None,
+            error: Some("Neither Claude CLI nor OpenCode CLI is installed".to_string()),
+        };
+    };
+
+    let mut command_name = "claude";
+    let mut args = vec![];
+    if ai_cli == AiCli::Claude {
+        args = vec![
+            "-p".to_string(),
+            "--dangerously-skip-permissions".to_string(),
+            "--output-format".to_string(),
+            "json".to_string(),
+            "--append-system-prompt".to_string(),
+            r#"You are a terminal file manager assistant. Be concise. Focus on file operations. Respond in the same language as the user.
 
 SECURITY RULES (MUST FOLLOW):
 - NEVER execute destructive commands like rm -rf, format, mkfs, dd, etc.
@@ -106,7 +134,15 @@ IMPORTANT: Format your responses using Markdown for better readability:
 - Use code blocks (```language) for multi-line code or command examples
 - Use headers (## Title) to organize longer responses
 - Keep formatting minimal and terminal-friendly"#.to_string(),
-    ];
+        ];
+    } else {
+        command_name = "opencode";
+        args = vec![
+            "run".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+    }
 
     // Resume session if available
     if let Some(sid) = session_id {
@@ -118,28 +154,31 @@ IMPORTANT: Format your responses using Markdown for better readability:
                 error: Some("Invalid session ID format".to_string()),
             };
         }
-        args.push("--resume".to_string());
+        args.push(if ai_cli == AiCli::Claude { "--resume".to_string() } else { "--session".to_string() });
         args.push(sid.to_string());
     }
 
-    let mut child = match Command::new("claude")
+    let mut command = Command::new(command_name);
+    command
         .args(&args)
         .current_dir(working_dir)
-        .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
-        .env("BASH_DEFAULT_TIMEOUT_MS", "86400000")  // 24 hours (no practical timeout)
-        .env("BASH_MAX_TIMEOUT_MS", "86400000")      // 24 hours (no practical timeout)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+        .stderr(Stdio::piped());
+    if ai_cli == AiCli::Claude {
+        command
+            .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
+            .env("BASH_DEFAULT_TIMEOUT_MS", "86400000")  // 24 hours (no practical timeout)
+            .env("BASH_MAX_TIMEOUT_MS", "86400000");     // 24 hours (no practical timeout)
+    }
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
             return ClaudeResponse {
                 success: false,
                 response: None,
                 session_id: None,
-                error: Some(format!("Failed to start Claude: {}. Is Claude CLI installed?", e)),
+                error: Some(format!("Failed to start {}: {}", command_name, e)),
             };
         }
     };
@@ -188,6 +227,8 @@ fn parse_claude_output(output: &str) -> ClaudeResponse {
             // Extract session ID
             if let Some(sid) = json.get("session_id").and_then(|v| v.as_str()) {
                 session_id = Some(sid.to_string());
+            } else if let Some(sid) = json.get("sessionID").and_then(|v| v.as_str()) {
+                session_id = Some(sid.to_string());
             }
 
             // Extract response text
@@ -197,6 +238,10 @@ fn parse_claude_output(output: &str) -> ClaudeResponse {
                 response_text = message.to_string();
             } else if let Some(content) = json.get("content").and_then(|v| v.as_str()) {
                 response_text = content.to_string();
+            } else if json.get("type").and_then(|v| v.as_str()) == Some("text") {
+                if let Some(text) = json.get("part").and_then(|v| v.get("text")).and_then(|v| v.as_str()) {
+                    response_text = text.to_string();
+                }
             }
         } else if !line.trim().is_empty() && !line.starts_with('{') {
             response_text.push_str(line);
@@ -236,6 +281,28 @@ pub fn is_claude_available() -> bool {
     }
 }
 
+pub fn is_opencode_available() -> bool {
+    #[cfg(not(unix))]
+    {
+        false
+    }
+
+    #[cfg(unix)]
+    {
+        match Command::new("which")
+            .arg("opencode")
+            .output()
+        {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
+    }
+}
+
+pub fn is_ai_cli_available() -> bool {
+    preferred_ai_cli().is_some()
+}
+
 /// Check if platform supports AI features
 pub fn is_ai_supported() -> bool {
     cfg!(unix)
@@ -258,14 +325,21 @@ pub fn execute_command_streaming(
     debug_log(&format!("working_dir: {}", working_dir));
     debug_log(&format!("timestamp: {:?}", std::time::SystemTime::now()));
 
-    let mut args = vec![
-        "-p".to_string(),
-        "--dangerously-skip-permissions".to_string(),
-        "--verbose".to_string(),
-        "--output-format".to_string(),
-        "stream-json".to_string(),
-        "--append-system-prompt".to_string(),
-        r#"You are a terminal file manager assistant. Be concise. Focus on file operations. Respond in the same language as the user.
+    let Some(ai_cli) = preferred_ai_cli() else {
+        return Err("Neither Claude CLI nor OpenCode CLI is installed".to_string());
+    };
+
+    let mut command_name = "claude";
+    let mut args = vec![];
+    if ai_cli == AiCli::Claude {
+        args = vec![
+            "-p".to_string(),
+            "--dangerously-skip-permissions".to_string(),
+            "--verbose".to_string(),
+            "--output-format".to_string(),
+            "stream-json".to_string(),
+            "--append-system-prompt".to_string(),
+            r#"You are a terminal file manager assistant. Be concise. Focus on file operations. Respond in the same language as the user.
 
 SECURITY RULES (MUST FOLLOW):
 - NEVER execute destructive commands like rm -rf, format, mkfs, dd, etc.
@@ -292,7 +366,15 @@ IMPORTANT: Format your responses using Markdown for better readability:
 - Use code blocks (```language) for multi-line code or command examples
 - Use headers (## Title) to organize longer responses
 - Keep formatting minimal and terminal-friendly"#.to_string(),
-    ];
+        ];
+    } else {
+        command_name = "opencode";
+        args = vec![
+            "run".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+    }
 
     // Resume session if available
     if let Some(sid) = session_id {
@@ -300,12 +382,12 @@ IMPORTANT: Format your responses using Markdown for better readability:
             debug_log("ERROR: Invalid session ID format");
             return Err("Invalid session ID format".to_string());
         }
-        args.push("--resume".to_string());
+        args.push(if ai_cli == AiCli::Claude { "--resume".to_string() } else { "--session".to_string() });
         args.push(sid.to_string());
     }
 
-    debug_log("--- Spawning claude process ---");
-    debug_log(&format!("Command: claude"));
+    debug_log("--- Spawning AI process ---");
+    debug_log(&format!("Command: {}", command_name));
     debug_log(&format!("Args count: {}", args.len()));
     for (i, arg) in args.iter().enumerate() {
         if arg.len() > 100 {
@@ -314,24 +396,30 @@ IMPORTANT: Format your responses using Markdown for better readability:
             debug_log(&format!("  arg[{}]: {}", i, arg));
         }
     }
-    debug_log("Env: CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000");
-    debug_log("Env: BASH_DEFAULT_TIMEOUT_MS=86400000");
-    debug_log("Env: BASH_MAX_TIMEOUT_MS=86400000");
+    if ai_cli == AiCli::Claude {
+        debug_log("Env: CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000");
+        debug_log("Env: BASH_DEFAULT_TIMEOUT_MS=86400000");
+        debug_log("Env: BASH_MAX_TIMEOUT_MS=86400000");
+    }
 
     let spawn_start = std::time::Instant::now();
-    let mut child = Command::new("claude")
+    let mut command = Command::new(command_name);
+    command
         .args(&args)
         .current_dir(working_dir)
-        .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
-        .env("BASH_DEFAULT_TIMEOUT_MS", "86400000")  // 24 hours (no practical timeout)
-        .env("BASH_MAX_TIMEOUT_MS", "86400000")      // 24 hours (no practical timeout)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    if ai_cli == AiCli::Claude {
+        command
+            .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
+            .env("BASH_DEFAULT_TIMEOUT_MS", "86400000")  // 24 hours (no practical timeout)
+            .env("BASH_MAX_TIMEOUT_MS", "86400000");     // 24 hours (no practical timeout)
+    }
+    let mut child = command.spawn()
         .map_err(|e| {
             debug_log(&format!("ERROR: Failed to spawn after {:?}: {}", spawn_start.elapsed(), e));
-            format!("Failed to start Claude: {}. Is Claude CLI installed?", e)
+            format!("Failed to start {}: {}", command_name, e)
         })?;
     debug_log(&format!("Claude process spawned successfully in {:?}, pid={:?}", spawn_start.elapsed(), child.id()));
 
@@ -390,6 +478,9 @@ IMPORTANT: Format your responses using Markdown for better readability:
         debug_log(&format!("  Raw line preview: {}", line_preview));
 
         if let Ok(json) = serde_json::from_str::<Value>(&line) {
+            if let Some(sid) = json.get("sessionID").and_then(|v| v.as_str()) {
+                last_session_id = Some(sid.to_string());
+            }
             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
             let msg_subtype = json.get("subtype").and_then(|v| v.as_str()).unwrap_or("-");
             debug_log(&format!("  JSON parsed: type={}, subtype={}", msg_type, msg_subtype));
@@ -590,6 +681,37 @@ fn parse_stream_message(json: &Value) -> Option<StreamMessage> {
                 .map(String::from);
             Some(StreamMessage::Done { result, session_id })
         }
+        "text" => {
+            let content = json.get("part")
+                .and_then(|v| v.get("text"))
+                .and_then(|v| v.as_str())?
+                .to_string();
+            Some(StreamMessage::Text { content })
+        }
+        "tool_use" => {
+            let part = json.get("part")?;
+            let name = part.get("tool")
+                .and_then(|v| v.as_str())
+                .unwrap_or("tool")
+                .to_string();
+            let input = part.get("state")
+                .and_then(|v| v.get("input"))
+                .map(|v| serde_json::to_string_pretty(v).unwrap_or_default())
+                .unwrap_or_default();
+            Some(StreamMessage::ToolUse { name, input })
+        }
+        "error" => {
+            let message = json.get("error")
+                .and_then(|v| {
+                    if let Some(s) = v.as_str() {
+                        Some(s.to_string())
+                    } else {
+                        v.get("message").and_then(|m| m.as_str()).map(String::from)
+                    }
+                })
+                .unwrap_or_else(|| "Unknown error".to_string());
+            Some(StreamMessage::Error { message })
+        }
         _ => None
     }
 }
@@ -728,6 +850,16 @@ mod tests {
         assert_eq!(response.response, Some("".to_string()));
     }
 
+    #[test]
+    fn test_parse_claude_output_opencode_text() {
+        let output = r#"{"type":"text","sessionID":"sess-oc-1","part":{"text":"OpenCode response"}}"#;
+        let response = parse_claude_output(output);
+
+        assert!(response.success);
+        assert_eq!(response.session_id, Some("sess-oc-1".to_string()));
+        assert_eq!(response.response, Some("OpenCode response".to_string()));
+    }
+
     // ========== is_ai_supported tests ==========
 
     #[test]
@@ -849,5 +981,44 @@ mod tests {
 
         let msg = parse_stream_message(&json);
         assert!(msg.is_none());
+    }
+
+    #[test]
+    fn test_parse_stream_message_opencode_text() {
+        let json: Value = serde_json::from_str(
+            r#"{"type":"text","sessionID":"sess-1","part":{"text":"OpenCode text"}}"#
+        ).unwrap();
+
+        match parse_stream_message(&json) {
+            Some(StreamMessage::Text { content }) => assert_eq!(content, "OpenCode text"),
+            _ => panic!("Expected OpenCode Text message"),
+        }
+    }
+
+    #[test]
+    fn test_parse_stream_message_opencode_tool_use() {
+        let json: Value = serde_json::from_str(
+            r#"{"type":"tool_use","part":{"tool":"bash","state":{"input":{"command":"ls"}}}}"#
+        ).unwrap();
+
+        match parse_stream_message(&json) {
+            Some(StreamMessage::ToolUse { name, input }) => {
+                assert_eq!(name, "bash");
+                assert!(input.contains("ls"));
+            }
+            _ => panic!("Expected OpenCode ToolUse message"),
+        }
+    }
+
+    #[test]
+    fn test_parse_stream_message_opencode_error() {
+        let json: Value = serde_json::from_str(
+            r#"{"type":"error","error":{"message":"permission denied"}}"#
+        ).unwrap();
+
+        match parse_stream_message(&json) {
+            Some(StreamMessage::Error { message }) => assert_eq!(message, "permission denied"),
+            _ => panic!("Expected OpenCode Error message"),
+        }
     }
 }

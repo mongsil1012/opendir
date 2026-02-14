@@ -7,7 +7,7 @@ Multi-panel terminal file manager with AI-powered natural language commands.
 ## Features
 
 - **Blazing Fast**: Written in Rust for maximum performance. ~10ms startup, ~5MB memory usage, ~4MB static binary with zero runtime dependencies.
-- **AI-Powered Commands**: Natural language file operations powered by Claude AI. Press `.` and describe what you want.
+- **AI-Powered Commands**: Natural language file operations powered by Claude Code or OpenCode. Press `.` and describe what you want.
 - **Multi-Panel Navigation**: Dynamic multi-panel interface for efficient file management
 - **Keyboard Driven**: Full keyboard navigation designed for power users
 - **Built-in Editor**: Edit files with syntax highlighting for 20+ languages
@@ -57,13 +57,15 @@ See [build_manual.md](build_manual.md) for detailed build instructions.
 
 ## Enable AI Commands (Optional)
 
-Install Claude Code to unlock natural language file operations:
+Install Claude Code or OpenCode to unlock natural language file operations:
 
 ```bash
 npm install -g @anthropic-ai/claude-code
+# or
+npm install -g opencode-ai
 ```
 
-Learn more at [docs.anthropic.com](https://docs.anthropic.com/en/docs/claude-code)
+Learn more at [docs.anthropic.com](https://docs.anthropic.com/en/docs/claude-code) or [opencode.ai](https://opencode.ai)
 
 ## Documentation
 

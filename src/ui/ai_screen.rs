@@ -516,7 +516,7 @@ impl AIScreenState {
         let (session_data, _) = matching_session?;
 
         // Create state with loaded session
-        let claude_available = claude::is_claude_available();
+        let claude_available = claude::is_ai_cli_available();
         let placeholder_index = rand::thread_rng().gen_range(0..PLACEHOLDER_MESSAGES.len());
 
         let mut state = Self {
@@ -559,7 +559,7 @@ impl AIScreenState {
     }
 
     pub fn new(current_path: String) -> Self {
-        let claude_available = claude::is_claude_available();
+        let claude_available = claude::is_ai_cli_available();
         let placeholder_index = rand::thread_rng().gen_range(0..PLACEHOLDER_MESSAGES.len());
         let mut state = Self {
             history: Vec::new(),
@@ -596,7 +596,7 @@ impl AIScreenState {
         } else if !claude_available {
             state.history.push(HistoryItem {
                 item_type: HistoryType::Error,
-                content: "Claude CLI not found. Run 'which claude' to verify installation.".to_string(),
+                content: "Claude/OpenCode CLI not found. Run 'which claude' or 'which opencode' to verify installation.".to_string(),
             });
         }
 
@@ -833,9 +833,9 @@ impl AIScreenState {
             return;
         }
 
-        // Check claude availability before actual API call
+        // Check AI CLI availability before actual API call
         if !self.claude_available {
-            debug_log("submit: Claude not available, returning early");
+            debug_log("submit: AI CLI not available, returning early");
             return;
         }
 
@@ -1429,7 +1429,7 @@ fn draw_input(frame: &mut Frame, state: &AIScreenState, area: Rect, theme: &Them
     } else if !state.claude_available {
         frame.render_widget(
             Paragraph::new(Span::styled(
-                "Claude CLI not available",
+                "Claude/OpenCode CLI not available",
                 Style::default().fg(theme.ai_screen.error_text),
             )),
             inner,

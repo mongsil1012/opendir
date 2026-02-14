@@ -64,10 +64,12 @@ fn print_version() {
 fn handle_prompt(prompt: &str) {
     use crate::ui::theme::Theme;
 
-    // Check if Claude is available
-    if !claude::is_claude_available() {
-        eprintln!("Error: Claude CLI is not available.");
-        eprintln!("Please install Claude CLI: https://claude.ai/cli");
+    // Check if an AI CLI is available
+    if !claude::is_ai_cli_available() {
+        eprintln!("Error: Claude CLI or OpenCode CLI is not available.");
+        eprintln!("Please install one of them:");
+        eprintln!("- Claude CLI: https://claude.ai/cli");
+        eprintln!("- OpenCode: https://opencode.ai");
         return;
     }
 
