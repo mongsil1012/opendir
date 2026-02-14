@@ -68,7 +68,7 @@ export default function Hero() {
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">
             Get Started in <span className="text-accent-cyan">Seconds</span>
           </h2>
-          <p className="text-zinc-400 text-base sm:text-lg mb-8">
+          <p className="text-zinc-400 text-sm sm:text-base md:text-lg mb-6 sm:mb-8">
             One command installation. No dependencies required.
           </p>
 
@@ -94,7 +94,7 @@ export default function Hero() {
           </div>
 
           {/* Optional AI setup */}
-          <div className="mt-12 p-4 sm:p-6 rounded-xl border border-zinc-800 bg-bg-card text-left">
+          <div className="mt-8 sm:mt-12 p-4 sm:p-6 rounded-xl border border-zinc-800 bg-bg-card text-left">
             <h3 className="text-base sm:text-lg font-semibold mb-3 flex items-center gap-2">
               <span className="text-accent-purple">✨</span>
               Enable AI Commands (Optional)

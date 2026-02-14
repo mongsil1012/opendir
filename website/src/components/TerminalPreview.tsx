@@ -27,9 +27,9 @@ function ScenarioFiles() {
   }, [files.length])
 
   return (
-    <div className="p-4 font-mono text-sm">
+    <div className="p-3 sm:p-4 font-mono text-sm">
       <div className="text-center text-accent-cyan mb-2 font-bold text-xs">COKACDIR</div>
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         {/* Panel 1 */}
         <div className="flex-1 border border-primary rounded p-2 bg-bg-card/50">
           <div className="text-primary text-xs mb-2 border-b border-zinc-700 pb-1">~/projects</div>
@@ -99,7 +99,7 @@ function ScenarioAI() {
   }, [])
 
   return (
-    <div className="p-4 font-mono text-sm">
+    <div className="p-3 sm:p-4 font-mono text-sm">
       <div className="text-center text-accent-cyan mb-2 font-bold text-xs">COKACDIR</div>
       {/* Dim background files */}
       <div className="opacity-30 mb-3">
@@ -149,7 +149,7 @@ function ScenarioDiff() {
   ]
 
   return (
-    <div className="p-4 font-mono text-sm">
+    <div className="p-3 sm:p-4 font-mono text-sm">
       <div className="text-center text-accent-cyan mb-2 font-bold text-xs">DIFF COMPARE</div>
       <div className="border border-zinc-700 rounded p-2 bg-bg-card/50">
         <div className="flex justify-between text-xs text-zinc-500 mb-2 border-b border-zinc-700 pb-1">
@@ -233,7 +233,7 @@ export default function TerminalPreview() {
         </div>
 
         {/* Content area with transitions */}
-        <div className="min-h-[240px]">
+        <div className="min-h-[200px] sm:min-h-[240px]">
           <AnimatePresence mode="wait">
             <motion.div
               key={active}

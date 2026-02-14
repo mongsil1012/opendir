@@ -67,7 +67,7 @@ function TerminalDemo() {
         </div>
 
         {/* Terminal body */}
-        <div className="p-5 font-mono text-sm min-h-[160px]">
+        <div className="p-3 sm:p-5 font-mono text-sm min-h-[140px] sm:min-h-[160px]">
           <div className="text-zinc-500 text-xs mb-3">Press <span className="text-accent-purple">.</span> to open AI prompt</div>
 
           {/* AI input line */}
@@ -87,7 +87,7 @@ function TerminalDemo() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="ml-6 text-accent-green text-xs leading-relaxed"
+                className="ml-4 sm:ml-6 text-accent-green text-xs leading-relaxed"
               >
                 {typedResult}
                 {step === 2 && typedResult.length < example.result.length && <span className="typing-cursor" />}
@@ -113,7 +113,7 @@ export default function AIShowcase() {
   const inView = useInView(ref, { once: true, margin: '-100px' })
 
   return (
-    <section className="py-24 px-4 relative overflow-hidden" ref={ref}>
+    <section className="py-12 sm:py-24 px-4 relative overflow-hidden" ref={ref}>
       {/* Purple tint background */}
       <div className="absolute inset-0 bg-gradient-to-b from-accent-purple/5 via-accent-purple/10 to-accent-purple/5 pointer-events-none" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-purple/10 rounded-full blur-3xl pointer-events-none" />
@@ -125,18 +125,18 @@ export default function AIShowcase() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="text-center mb-16"
+          className="text-center mb-8 sm:mb-16"
         >
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            Just Press <kbd className="px-3 py-1 bg-accent-purple/20 border border-accent-purple/40 rounded-lg text-accent-purple font-mono">.</kbd> and Ask
+            Just Press <kbd className="px-2 sm:px-3 py-1 bg-accent-purple/20 border border-accent-purple/40 rounded-lg text-accent-purple font-mono">.</kbd> and Ask
           </h2>
-          <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
+          <p className="text-zinc-400 text-sm sm:text-lg max-w-2xl mx-auto">
             Natural language file operations powered by AI. Describe what you want — done.
           </p>
         </motion.div>
 
         {/* 2-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-10 items-center">
           {/* Left: Terminal demo */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
@@ -148,7 +148,7 @@ export default function AIShowcase() {
           </motion.div>
 
           {/* Right: Example bubbles */}
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {bubbleExamples.map((text, i) => (
               <motion.div
                 key={i}

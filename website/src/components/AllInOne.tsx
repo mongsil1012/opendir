@@ -16,7 +16,7 @@ export default function AllInOne() {
   const inView = useInView(ref, { once: true, margin: '-100px' })
 
   return (
-    <section className="py-24 px-4" ref={ref}>
+    <section className="py-12 sm:py-24 px-4" ref={ref}>
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <motion.div
@@ -24,12 +24,12 @@ export default function AllInOne() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="text-center mb-16"
+          className="text-center mb-8 sm:mb-16"
         >
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
             One Tool, <span className="text-accent-cyan text-glow">Zero</span> Context Switching
           </h2>
-          <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
+          <p className="text-zinc-400 text-sm sm:text-lg max-w-2xl mx-auto">
             Stop juggling between file manager, editor, git client, diff tool, and terminal.
           </p>
         </motion.div>
@@ -54,7 +54,7 @@ export default function AllInOne() {
                 <span className="w-5 h-5 rounded-full border border-zinc-700 flex items-center justify-center text-xs text-zinc-600 shrink-0">
                   x
                 </span>
-                <span className="line-through decoration-zinc-600 text-lg">{tool}</span>
+                <span className="line-through decoration-zinc-600 text-base sm:text-lg">{tool}</span>
               </motion.div>
             ))}
           </motion.div>
@@ -90,7 +90,7 @@ export default function AllInOne() {
           >
             <div className="relative">
               <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 via-accent-cyan/20 to-accent-purple/20 rounded-2xl blur-2xl" />
-              <div className="relative bg-bg-card border border-accent-cyan/30 rounded-2xl p-10 text-center">
+              <div className="relative bg-bg-card border border-accent-cyan/30 rounded-2xl p-6 sm:p-10 text-center">
                 <div className="text-4xl sm:text-5xl font-extrabold gradient-text mb-3">cokacdir</div>
                 <div className="text-zinc-400 text-sm">All-in-one terminal file manager</div>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">

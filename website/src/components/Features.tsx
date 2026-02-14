@@ -58,7 +58,7 @@ const pillars: Pillar[] = [
 
 export default function Features() {
   return (
-    <section className="py-24 px-4" id="features">
+    <section className="py-12 sm:py-24 px-4" id="features">
       <div className="max-w-6xl mx-auto">
         {/* Section header */}
         <motion.div
@@ -66,18 +66,18 @@ export default function Features() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="text-center mb-16"
+          className="text-center mb-8 sm:mb-16"
         >
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
             <span className="gradient-text">Powerful Features</span>
           </h2>
-          <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
+          <p className="text-zinc-400 text-sm sm:text-lg max-w-2xl mx-auto">
             Everything you need in a terminal file manager, and more.
           </p>
         </motion.div>
 
         {/* Pillar blocks - zigzag layout */}
-        <div className="space-y-16">
+        <div className="space-y-10 sm:space-y-16">
           {pillars.map((pillar, index) => {
             const isReversed = index % 2 === 1
 
@@ -115,7 +115,7 @@ export default function Features() {
 
                 {/* Visual card side */}
                 <div className="flex-1 lg:max-w-[50%] w-full">
-                  <div className={`bg-gradient-to-br ${pillar.tint} border ${pillar.borderColor} rounded-2xl p-8 transition-colors duration-300`}>
+                  <div className={`bg-gradient-to-br ${pillar.tint} border ${pillar.borderColor} rounded-2xl p-4 sm:p-8 transition-colors duration-300`}>
                     <PillarVisual index={index} />
                   </div>
                 </div>
@@ -134,7 +134,7 @@ function PillarVisual({ index }: { index: number }) {
     // Navigate: multi-panel mockup
     return (
       <div className="font-mono text-xs space-y-2">
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <div className="flex-1 border border-accent-cyan/30 rounded p-2 bg-bg-dark/50">
             <div className="text-accent-cyan text-[10px] mb-1 border-b border-zinc-800 pb-1">~/documents</div>
             <div className="space-y-0.5">
@@ -189,8 +189,8 @@ function PillarVisual({ index }: { index: number }) {
           <span className="text-zinc-600">vs</span>
           <span className="text-zinc-500">v2/config.json</span>
         </div>
-        <div className="flex">
-          <div className="flex-1 p-2 border-r border-zinc-800 space-y-0.5">
+        <div className="flex flex-col sm:flex-row">
+          <div className="flex-1 p-2 border-b sm:border-b-0 sm:border-r border-zinc-800 space-y-0.5">
             <div className="text-zinc-400">  "name": "app",</div>
             <div className="bg-red-500/10 text-red-400">- "port": 3000,</div>
             <div className="text-zinc-400">  "debug": false</div>

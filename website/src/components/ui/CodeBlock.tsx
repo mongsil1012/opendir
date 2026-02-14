@@ -25,9 +25,9 @@ export default function CodeBlock({ code, showCopy = true }: CodeBlockProps) {
       className="relative group bg-bg-card border border-zinc-800 rounded-lg overflow-hidden"
       whileHover={{ borderColor: 'rgba(0, 212, 255, 0.3)' }}
     >
-      <div className="flex items-center justify-between px-4 py-3 gap-2">
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 gap-2">
         <div className="overflow-x-auto min-w-0 flex-1">
-          <code className="font-mono text-accent-cyan text-xs sm:text-base whitespace-nowrap">
+          <code className="font-mono text-accent-cyan text-xs sm:text-sm whitespace-nowrap">
             <span className="text-zinc-500">$ </span>
             {code}
           </code>
