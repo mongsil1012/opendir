@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Github, BookOpen, Zap, Apple, Monitor } from 'lucide-react'
+import { Github, BookOpen, Apple, Monitor } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import Button from './ui/Button'
 import CodeBlock from './ui/CodeBlock'
@@ -59,8 +59,15 @@ export default function Hero() {
           An easy terminal explorer for vibe coders who are scared of the terminal
         </motion.p>
 
-        {/* Spacer before CTA */}
-        <div className="mb-10" />
+        {/* Terminal preview */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 1, delay: 0.4 }}
+          className="mb-16"
+        >
+          <TerminalPreview />
+        </motion.div>
 
         {/* Quick Start */}
         <motion.div
@@ -70,10 +77,6 @@ export default function Hero() {
           className="max-w-3xl mx-auto mb-8"
           id="install"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent-green/10 border border-accent-green/20 mb-6">
-            <Zap className="w-4 h-4 text-accent-green" />
-            <span className="text-sm text-accent-green">Quick Start</span>
-          </div>
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
             Get Started in <span className="text-accent-cyan">Seconds</span>
           </h2>
@@ -137,14 +140,6 @@ export default function Hero() {
           </Link>
         </motion.div>
 
-        {/* Terminal preview */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 1, delay: 0.6 }}
-        >
-          <TerminalPreview />
-        </motion.div>
       </div>
 
       {/* Scroll indicator */}
