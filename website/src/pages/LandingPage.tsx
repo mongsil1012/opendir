@@ -7,7 +7,7 @@ import Footer from '../components/Footer'
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-bg-dark">
+    <div className="min-h-screen bg-bg-dark overflow-x-hidden">
       <Hero />
       <PowerStrip />
       <AIShowcase />

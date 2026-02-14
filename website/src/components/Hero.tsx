@@ -11,10 +11,10 @@ export default function Hero() {
       <div className="absolute inset-0 grid-background opacity-50" />
 
       {/* Gradient orbs */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-glow-pulse" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent-cyan/20 rounded-full blur-3xl animate-glow-pulse" style={{ animationDelay: '2s' }} />
+      <div className="absolute top-1/4 left-1/4 w-48 h-48 sm:w-96 sm:h-96 bg-primary/20 rounded-full blur-3xl animate-glow-pulse" />
+      <div className="absolute bottom-1/4 right-1/4 w-48 h-48 sm:w-96 sm:h-96 bg-accent-cyan/20 rounded-full blur-3xl animate-glow-pulse" style={{ animationDelay: '2s' }} />
 
-      <div className="relative z-10 max-w-6xl mx-auto text-center">
+      <div className="relative z-10 w-full max-w-6xl mx-auto text-center">
         {/* Main title */}
         <motion.h1
           initial={{ opacity: 0, y: 20 }}
@@ -62,7 +62,7 @@ export default function Hero() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.4 }}
-          className="max-w-6xl mx-auto mb-6 sm:mb-8"
+          className="w-full max-w-6xl mx-auto mb-6 sm:mb-8"
           id="install"
         >
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">
@@ -73,7 +73,7 @@ export default function Hero() {
           </p>
 
           <div className="relative space-y-4">
-            <div className="absolute -inset-2 bg-gradient-to-r from-primary/20 via-accent-cyan/20 to-accent-purple/20 rounded-2xl blur-xl opacity-60 pointer-events-none" />
+            <div className="absolute inset-0 sm:-inset-2 bg-gradient-to-r from-primary/20 via-accent-cyan/20 to-accent-purple/20 rounded-2xl blur-xl opacity-60 pointer-events-none" />
             <div className="relative">
               <CodeBlock code={`/bin/bash -c "$(curl -fsSL https://cokacdir.cokac.com/install.sh)"`} />
             </div>

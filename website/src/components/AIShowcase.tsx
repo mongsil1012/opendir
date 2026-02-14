@@ -53,8 +53,8 @@ function TerminalDemo() {
   }, [exampleIdx, example.prompt.length, example.result.length])
 
   return (
-    <div className="relative">
-      <div className="absolute -inset-1 bg-gradient-to-r from-accent-purple/40 via-primary/30 to-accent-purple/40 rounded-xl blur-lg opacity-40" />
+    <div className="relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-r from-accent-purple/40 via-primary/30 to-accent-purple/40 rounded-xl blur-lg opacity-40" />
       <div className="relative bg-bg-dark border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
         {/* Title bar */}
         <div className="flex items-center gap-2 px-4 py-3 bg-bg-card border-b border-zinc-800">
@@ -116,7 +116,7 @@ export default function AIShowcase() {
     <section className="py-12 sm:py-24 px-4 relative overflow-hidden" ref={ref}>
       {/* Purple tint background */}
       <div className="absolute inset-0 bg-gradient-to-b from-accent-purple/5 via-accent-purple/10 to-accent-purple/5 pointer-events-none" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-purple/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] sm:w-[600px] sm:h-[600px] bg-accent-purple/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="relative max-w-6xl mx-auto">
         {/* Header */}

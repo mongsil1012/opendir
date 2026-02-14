@@ -198,21 +198,21 @@ export default function TerminalPreview() {
   const ActiveScene = scenarios[active]
 
   return (
-    <div className="relative max-w-6xl mx-auto">
+    <div className="relative w-full max-w-6xl mx-auto overflow-hidden">
       {/* Glow effect */}
-      <div className="absolute -inset-1 bg-gradient-to-r from-primary via-accent-cyan to-accent-purple rounded-xl blur-lg opacity-30" />
+      <div className="absolute inset-0 bg-gradient-to-r from-primary via-accent-cyan to-accent-purple rounded-xl blur-lg opacity-30" />
 
       {/* Terminal window */}
       <div className="relative bg-bg-dark border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
         {/* Title bar */}
-        <div className="flex items-center justify-between px-4 py-3 bg-bg-card border-b border-zinc-800">
-          <div className="flex items-center gap-2">
-            <div className="flex gap-2" aria-hidden="true">
-              <div className="w-3 h-3 rounded-full bg-red-500/80" />
-              <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-              <div className="w-3 h-3 rounded-full bg-green-500/80" />
+        <div className="flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 bg-bg-card border-b border-zinc-800">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex gap-1.5 sm:gap-2" aria-hidden="true">
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-red-500/80" />
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-yellow-500/80" />
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-green-500/80" />
             </div>
-            <span className="text-xs text-zinc-500 ml-2 font-mono">cokacdir — ~/projects</span>
+            <span className="text-[10px] sm:text-xs text-zinc-500 ml-1 sm:ml-2 font-mono hidden sm:inline">cokacdir — ~/projects</span>
           </div>
           {/* Scene indicator dots */}
           <div className="flex gap-1 sm:gap-1.5">
@@ -220,7 +220,7 @@ export default function TerminalPreview() {
               <button
                 key={i}
                 onClick={() => setActive(i)}
-                className={`px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-mono transition-colors ${
+                className={`px-1 sm:px-2 py-0.5 rounded text-[8px] sm:text-[10px] font-mono transition-colors ${
                   i === active
                     ? 'bg-accent-cyan/20 text-accent-cyan'
                     : 'text-zinc-600 hover:text-zinc-400'
