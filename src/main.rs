@@ -69,7 +69,7 @@ fn handle_prompt(prompt: &str) {
         eprintln!("Error: Claude CLI or OpenCode CLI is not available.");
         eprintln!("Please install one of them:");
         eprintln!("- Claude CLI: https://claude.ai/cli");
-        eprintln!("- OpenCode: https://opencode.ai");
+        eprintln!("- OpenCode: https://github.com/anomalyco/opencode");
         return;
     }
 

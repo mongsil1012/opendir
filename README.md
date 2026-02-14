@@ -65,7 +65,7 @@ npm install -g @anthropic-ai/claude-code
 npm install -g opencode-ai
 ```
 
-Learn more at [docs.anthropic.com](https://docs.anthropic.com/en/docs/claude-code) or [opencode.ai](https://opencode.ai)
+Learn more at [docs.anthropic.com](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode on GitHub](https://github.com/anomalyco/opencode)
 
 ## Documentation
 

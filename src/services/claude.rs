@@ -98,10 +98,8 @@ pub fn execute_command(
         };
     };
 
-    let mut command_name = "claude";
-    let mut args = vec![];
-    if ai_cli == AiCli::Claude {
-        args = vec![
+    let (command_name, mut args) = if ai_cli == AiCli::Claude {
+        ("claude", vec![
             "-p".to_string(),
             "--dangerously-skip-permissions".to_string(),
             "--output-format".to_string(),
@@ -134,15 +132,14 @@ IMPORTANT: Format your responses using Markdown for better readability:
 - Use code blocks (```language) for multi-line code or command examples
 - Use headers (## Title) to organize longer responses
 - Keep formatting minimal and terminal-friendly"#.to_string(),
-        ];
+        ])
     } else {
-        command_name = "opencode";
-        args = vec![
+        ("opencode", vec![
             "run".to_string(),
             "--format".to_string(),
             "json".to_string(),
-        ];
-    }
+        ])
+    };
 
     // Resume session if available
     if let Some(sid) = session_id {
@@ -329,10 +326,8 @@ pub fn execute_command_streaming(
         return Err("Neither Claude CLI nor OpenCode CLI is installed".to_string());
     };
 
-    let mut command_name = "claude";
-    let mut args = vec![];
-    if ai_cli == AiCli::Claude {
-        args = vec![
+    let (command_name, mut args) = if ai_cli == AiCli::Claude {
+        ("claude", vec![
             "-p".to_string(),
             "--dangerously-skip-permissions".to_string(),
             "--verbose".to_string(),
@@ -366,15 +361,14 @@ IMPORTANT: Format your responses using Markdown for better readability:
 - Use code blocks (```language) for multi-line code or command examples
 - Use headers (## Title) to organize longer responses
 - Keep formatting minimal and terminal-friendly"#.to_string(),
-        ];
+        ])
     } else {
-        command_name = "opencode";
-        args = vec![
+        ("opencode", vec![
             "run".to_string(),
             "--format".to_string(),
             "json".to_string(),
-        ];
-    }
+        ])
+    };
 
     // Resume session if available
     if let Some(sid) = session_id {
@@ -421,7 +415,7 @@ IMPORTANT: Format your responses using Markdown for better readability:
             debug_log(&format!("ERROR: Failed to spawn after {:?}: {}", spawn_start.elapsed(), e));
             format!("Failed to start {}: {}", command_name, e)
         })?;
-    debug_log(&format!("Claude process spawned successfully in {:?}, pid={:?}", spawn_start.elapsed(), child.id()));
+    debug_log(&format!("AI process spawned successfully in {:?}, pid={:?}", spawn_start.elapsed(), child.id()));
 
     // Write prompt to stdin
     if let Some(mut stdin) = child.stdin.take() {
