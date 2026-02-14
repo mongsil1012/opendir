@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Github, BookOpen } from 'lucide-react'
+import { Github, BookOpen, Zap, Apple, Monitor } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import Button from './ui/Button'
 import CodeBlock from './ui/CodeBlock'
@@ -62,14 +62,59 @@ export default function Hero() {
         {/* Spacer before CTA */}
         <div className="mb-10" />
 
-        {/* Install command */}
+        {/* Quick Start */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.4 }}
-          className="max-w-2xl mx-auto mb-6"
+          className="max-w-3xl mx-auto mb-8"
+          id="install"
         >
-          <CodeBlock code={`/bin/bash -c "$(curl -fsSL https://cokacdir.cokac.com/install.sh)"`} />
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent-green/10 border border-accent-green/20 mb-6">
+            <Zap className="w-4 h-4 text-accent-green" />
+            <span className="text-sm text-accent-green">Quick Start</span>
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+            Get Started in <span className="text-accent-cyan">Seconds</span>
+          </h2>
+          <p className="text-zinc-400 text-lg mb-8">
+            One command installation. No dependencies required.
+          </p>
+
+          <div className="relative space-y-4">
+            <div className="absolute -inset-2 bg-gradient-to-r from-primary/20 via-accent-cyan/20 to-accent-purple/20 rounded-2xl blur-xl opacity-60 pointer-events-none" />
+            <div className="relative">
+              <CodeBlock code={`/bin/bash -c "$(curl -fsSL https://cokacdir.cokac.com/install.sh)"`} />
+            </div>
+            <div className="relative">
+              <CodeBlock code="cokacdir [PATH...]" />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-center gap-6 mt-8 text-zinc-500">
+            <div className="flex items-center gap-2">
+              <Apple className="w-4 h-4" />
+              <span className="text-sm">macOS</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Monitor className="w-4 h-4" />
+              <span className="text-sm">Linux</span>
+            </div>
+          </div>
+
+          {/* Optional AI setup */}
+          <div className="mt-12 p-6 rounded-xl border border-zinc-800 bg-bg-card text-left">
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <span className="text-accent-purple">✨</span>
+              Enable AI Commands (Optional)
+            </h3>
+            <p className="text-zinc-400 text-sm mb-4">
+              Install Claude Code to unlock natural language file operations.
+            </p>
+            <div className="space-y-3">
+              <CodeBlock code="npm install -g @anthropic-ai/claude-code" />
+            </div>
+          </div>
         </motion.div>
 
         {/* CTA buttons */}

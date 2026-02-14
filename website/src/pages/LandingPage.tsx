@@ -3,7 +3,6 @@ import PowerStrip from '../components/PowerStrip'
 import AIShowcase from '../components/AIShowcase'
 import Features from '../components/Features'
 import AllInOne from '../components/AllInOne'
-import Installation from '../components/Installation'
 import Footer from '../components/Footer'
 
 export default function LandingPage() {
@@ -14,7 +13,6 @@ export default function LandingPage() {
       <AIShowcase />
       <Features />
       <AllInOne />
-      <Installation />
       <Footer />
     </div>
   )
