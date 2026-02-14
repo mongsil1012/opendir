@@ -1652,6 +1652,10 @@ fn compare_entries_for_sort(
 
 /// Compare two files. Returns true if they are considered the same.
 pub fn compare_files(left: &DiffFileInfo, right: &DiffFileInfo, method: CompareMethod) -> bool {
+    // If both are symlinks, compare their target paths
+    if left.is_symlink && right.is_symlink {
+        return fs::read_link(&left.full_path).ok() == fs::read_link(&right.full_path).ok();
+    }
     match method {
         CompareMethod::Content => {
             if left.size != right.size {

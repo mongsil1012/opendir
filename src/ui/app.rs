@@ -2628,6 +2628,21 @@ impl App {
             self.show_message("Diff is not supported for remote panels");
             return;
         }
+
+        // Priority: if exactly 2 directories are selected in active panel, diff them
+        let panel = &self.panels[self.active_panel_index];
+        let selected_dirs: Vec<PathBuf> = panel.files.iter()
+            .filter(|f| f.is_directory && panel.selected_files.contains(&f.name))
+            .map(|f| panel.path.join(&f.name))
+            .collect();
+        if selected_dirs.len() == 2 {
+            let left = selected_dirs[0].clone();
+            let right = selected_dirs[1].clone();
+            self.panels[self.active_panel_index].selected_files.clear();
+            self.enter_diff_screen(left, right);
+            return;
+        }
+
         if self.panels.len() < 2 {
             self.show_message("Need at least 2 panels for diff");
             return;
@@ -2661,6 +2676,10 @@ impl App {
 
     /// Enter diff screen with two directory paths
     pub fn enter_diff_screen(&mut self, left: PathBuf, right: PathBuf) {
+        if left == right {
+            self.show_message("Both paths are the same");
+            return;
+        }
         let compare_method = crate::ui::diff_screen::parse_compare_method(&self.settings.diff_compare_method);
         let sort_by = self.active_panel().sort_by;
         let sort_order = self.active_panel().sort_order;
