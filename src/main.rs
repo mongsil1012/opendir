@@ -23,10 +23,10 @@ use crate::utils::markdown::{render_markdown, MarkdownTheme, is_line_empty};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn print_help() {
-    println!("cokacdir {} - Multi-panel terminal file manager", VERSION);
+    println!("opendir {} - Multi-panel terminal file manager", VERSION);
     println!();
     println!("USAGE:");
-    println!("    cokacdir [OPTIONS] [PATH...]");
+    println!("    opendir [OPTIONS] [PATH...]");
     println!();
     println!("ARGS:");
     println!("    [PATH...]               Open panels at given paths (max 10)");
@@ -38,7 +38,7 @@ fn print_help() {
     println!("    --design                Enable theme hot-reload (for theme development)");
     println!("    --base64 <TEXT>         Decode base64 and print (internal use)");
     println!();
-    println!("HOMEPAGE: https://cokacdir.cokac.com");
+    println!("HOMEPAGE: https://opendir.cokac.com");
 }
 
 fn handle_base64(encoded: &str) {
@@ -58,7 +58,7 @@ fn handle_base64(encoded: &str) {
 }
 
 fn print_version() {
-    println!("cokacdir {}", VERSION);
+    println!("opendir {}", VERSION);
 }
 
 fn handle_prompt(prompt: &str) {
@@ -155,7 +155,7 @@ fn main() -> io::Result<()> {
             "--prompt" => {
                 if i + 1 >= args.len() {
                     eprintln!("Error: --prompt requires a text argument");
-                    eprintln!("Usage: cokacdir --prompt \"your question\"");
+                    eprintln!("Usage: opendir --prompt \"your question\"");
                     return Ok(());
                 }
                 handle_prompt(&args[i + 1]);
@@ -284,7 +284,7 @@ fn print_goodbye_message() {
     // Check for updates
     check_for_updates();
 
-    println!("Thank you for using COKACDIR! 🙏");
+    println!("Thank you for using OPENDIR! 🙏");
     println!();
     println!("If you found this useful, consider checking out my other content:");
     println!("  📺 YouTube: https://www.youtube.com/@코드깎는노인");
@@ -301,7 +301,7 @@ fn check_for_updates() {
         .args([
             "-fsSL",
             "--max-time", "3",
-            "https://raw.githubusercontent.com/kstost/cokacdir/refs/heads/main/Cargo.toml"
+            "https://raw.githubusercontent.com/kstost/opendir/refs/heads/main/Cargo.toml"
         ])
         .output();
 
@@ -319,7 +319,7 @@ fn check_for_updates() {
             println!("│  🚀 New version available: v{} (current: v{})                            ", latest, current_version);
             println!("│                                                                          │");
             println!("│  Update with:                                                            │");
-            println!("│  /bin/bash -c \"$(curl -fsSL https://cokacdir.cokac.com/install.sh)\"      │");
+            println!("│  /bin/bash -c \"$(curl -fsSL https://opendir.cokac.com/install.sh)\"      │");
             println!("└──────────────────────────────────────────────────────────────────────────┘");
             println!();
         }

@@ -130,17 +130,17 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Returns the config directory path (~/.cokacdir)
+    /// Returns the config directory path (~/.opendir)
     pub fn config_dir() -> Option<PathBuf> {
-        dirs::home_dir().map(|h| h.join(".cokacdir"))
+        dirs::home_dir().map(|h| h.join(".opendir"))
     }
 
-    /// Returns the themes directory path (~/.cokacdir/themes)
+    /// Returns the themes directory path (~/.opendir/themes)
     pub fn themes_dir() -> Option<PathBuf> {
         Self::config_dir().map(|d| d.join("themes"))
     }
 
-    /// Returns the config file path (~/.cokacdir/settings.json)
+    /// Returns the config file path (~/.opendir/settings.json)
     pub fn config_path() -> Option<PathBuf> {
         Self::config_dir().map(|d| d.join("settings.json"))
     }
@@ -148,7 +148,7 @@ impl Settings {
     /// Ensures config directories and default files exist
     /// Called on app startup to initialize configuration
     pub fn ensure_config_exists() {
-        // Create ~/.cokacdir/
+        // Create ~/.opendir/
         if let Some(config_dir) = Self::config_dir() {
             if !config_dir.exists() {
                 if fs::create_dir_all(&config_dir).is_ok() {
@@ -163,7 +163,7 @@ impl Settings {
             }
         }
 
-        // Create ~/.cokacdir/themes/
+        // Create ~/.opendir/themes/
         if let Some(themes_dir) = Self::themes_dir() {
             if !themes_dir.exists() {
                 let _ = fs::create_dir_all(&themes_dir);

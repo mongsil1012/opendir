@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# COKACDIR Installer
-# Usage: curl -fsSL https://cokacdir.cokac.com/install.sh | bash
+# OPENDIR Installer
+# Usage: curl -fsSL https://opendir.cokac.com/install.sh | bash
 #
 
 set -e
 
-BINARY_NAME="cokacdir"
-BASE_URL="https://cokacdir.cokac.com/dist"
+BINARY_NAME="opendir"
+BASE_URL="https://opendir.cokac.com/dist"
 
 # Colors
 RED='\033[0;31m'
@@ -87,7 +87,7 @@ download() {
 }
 
 # Shell wrapper function to add
-SHELL_FUNC='cokacdir() { command cokacdir "$@" && cd "$(cat ~/.cokacdir/lastdir 2>/dev/null || pwd)"; }'
+SHELL_FUNC='opendir() { command opendir "$@" && cd "$(cat ~/.opendir/lastdir 2>/dev/null || pwd)"; }'
 
 # Get shell config file
 get_shell_config() {
@@ -123,7 +123,7 @@ setup_shell() {
     fi
 
     # Check if already configured
-    if [ -f "$config_file" ] && grep -q "cokacdir()" "$config_file"; then
+    if [ -f "$config_file" ] && grep -q "opendir()" "$config_file"; then
         return
     fi
 
@@ -134,7 +134,7 @@ setup_shell() {
 
     # Add function
     echo "" >> "$config_file"
-    echo "# cokacdir - cd to last directory on exit" >> "$config_file"
+    echo "# opendir - cd to last directory on exit" >> "$config_file"
     echo "$SHELL_FUNC" >> "$config_file"
 }
 
@@ -144,7 +144,7 @@ main() {
     os="$(detect_os)"
     arch="$(detect_arch)"
 
-    info "Downloading cokacdir ($os-$arch)..."
+    info "Downloading opendir ($os-$arch)..."
 
     # Build download URL
     local filename="${BINARY_NAME}-${os}-${arch}"
@@ -185,7 +185,7 @@ main() {
         # Setup shell wrapper
         setup_shell
 
-        success "Installed! Run 'cokacdir' to start."
+        success "Installed! Run 'opendir' to start."
     else
         error "Installation failed"
     fi

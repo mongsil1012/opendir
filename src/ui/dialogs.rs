@@ -4671,7 +4671,7 @@ mod tests {
     fn create_temp_test_dir() -> PathBuf {
         let unique_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_dir = std::env::temp_dir().join(format!(
-            "cokacdir_dialog_test_{}_{}",
+            "opendir_dialog_test_{}_{}",
             std::process::id(),
             unique_id
         ));
@@ -4896,6 +4896,7 @@ mod tests {
             message: "Copy files".to_string(),
             completion: Some(PathCompletion::default()),
             selected_button: 0,
+            selection: None,
         };
 
         assert_eq!(dialog.dialog_type, DialogType::Copy);
@@ -4919,6 +4920,7 @@ mod tests {
             message: String::new(),
             completion: Some(PathCompletion::default()),
             selected_button: 0,
+            selection: None,
         };
 
         update_path_suggestions(&mut dialog);
@@ -4944,6 +4946,7 @@ mod tests {
             message: String::new(),
             completion: Some(PathCompletion::default()),
             selected_button: 0,
+            selection: None,
         };
 
         update_path_suggestions(&mut dialog);

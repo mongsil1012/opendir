@@ -199,7 +199,7 @@ pub enum DialogType {
 /// Settings dialog state
 #[derive(Debug, Clone)]
 pub struct SettingsState {
-    /// Available theme names (from ~/.cokacdir/themes/)
+    /// Available theme names (from ~/.opendir/themes/)
     pub themes: Vec<String>,
     /// Currently selected theme index
     pub theme_index: usize,
@@ -2137,7 +2137,7 @@ impl App {
     /// Handler prefix:
     /// - No prefix: Foreground execution (suspends TUI, runs command, waits for exit, restores TUI)
     ///   Example: "vim {{FILEPATH}}" - hands over terminal, blocks until program exits
-    /// - @ prefix: Background execution (spawns detached, returns to cokacdir immediately)
+    /// - @ prefix: Background execution (spawns detached, returns to opendir immediately)
     ///   Example: "@evince {{FILEPATH}}" - does not wait for program to finish
     pub fn try_extension_handler(&mut self, path: &std::path::Path) -> Result<bool, String> {
         // Get file extension
@@ -2235,7 +2235,7 @@ impl App {
         let encoded = encode_command_base64(command);
         let exe_path = std::env::current_exe()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "cokacdir".to_string());
+            .unwrap_or_else(|_| "opendir".to_string());
         let wrapped_command = format!("eval \"$('{}' --base64 '{}')\"", exe_path, encoded);
 
         let result = std::process::Command::new("bash")
@@ -2266,7 +2266,7 @@ impl App {
         let encoded = encode_command_base64(command);
         let exe_path = std::env::current_exe()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "cokacdir".to_string());
+            .unwrap_or_else(|_| "opendir".to_string());
         let wrapped_command = format!("eval \"$('{}' --base64 '{}')\"", exe_path, encoded);
 
         let result = std::process::Command::new("bash")
@@ -2880,7 +2880,7 @@ impl App {
         if let Some(ref ctx) = panel.remote_ctx {
             let tmp_base = dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join(".cokacdir").join("tmp")
+                .join(".opendir").join("tmp")
                 .join(format!("{}@{}", ctx.profile.user, ctx.profile.host));
             Some(tmp_base.join(remote_path.trim_start_matches('/')))
         } else {
@@ -2897,7 +2897,7 @@ impl App {
         let (profile, tmp_path) = if let Some(ref ctx) = panel.remote_ctx {
             let tmp_base = dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join(".cokacdir").join("tmp")
+                .join(".opendir").join("tmp")
                 .join(format!("{}@{}", ctx.profile.user, ctx.profile.host));
             let tmp_path = tmp_base.join(remote_path.trim_start_matches('/'));
             (ctx.profile.clone(), tmp_path)
@@ -3371,7 +3371,7 @@ impl App {
         thread::spawn(move || {
             let diff_base = dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join(".cokacdir")
+                .join(".opendir")
                 .join("diff");
 
             let _ = std::fs::remove_dir_all(&diff_base);
@@ -6248,7 +6248,7 @@ mod tests {
     fn create_temp_dir() -> PathBuf {
         let unique_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_dir = std::env::temp_dir().join(format!(
-            "cokacdir_app_test_{}_{}",
+            "opendir_app_test_{}_{}",
             std::process::id(),
             unique_id
         ));

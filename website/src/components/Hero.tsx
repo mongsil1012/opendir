@@ -22,7 +22,7 @@ export default function Hero() {
           transition={{ duration: 0.8, delay: 0.1 }}
           className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold mb-4 sm:mb-6"
         >
-          <span className="gradient-text">cokacdir</span>
+          <span className="gradient-text">opendir</span>
         </motion.h1>
 
         {/* Tagline */}
@@ -75,10 +75,10 @@ export default function Hero() {
           <div className="relative space-y-4">
             <div className="absolute inset-0 sm:-inset-2 bg-gradient-to-r from-primary/20 via-accent-cyan/20 to-accent-purple/20 rounded-2xl blur-xl opacity-60 pointer-events-none" />
             <div className="relative">
-              <CodeBlock code={`/bin/bash -c "$(curl -fsSL https://cokacdir.cokac.com/install.sh)"`} />
+              <CodeBlock code={`/bin/bash -c "$(curl -fsSL https://opendir.cokac.com/install.sh)"`} />
             </div>
             <div className="relative">
-              <CodeBlock code="cokacdir [PATH...]" />
+              <CodeBlock code="opendir [PATH...]" />
             </div>
           </div>
 

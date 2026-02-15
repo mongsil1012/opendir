@@ -81,7 +81,7 @@ export default function AllInOne() {
             </div>
           </motion.div>
 
-          {/* Right: cokacdir */}
+          {/* Right: opendir */}
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             animate={inView ? { opacity: 1, x: 0 } : {}}
@@ -91,7 +91,7 @@ export default function AllInOne() {
             <div className="relative">
               <div className="absolute inset-0 bg-gradient-to-r from-primary/20 via-accent-cyan/20 to-accent-purple/20 rounded-2xl blur-2xl" />
               <div className="relative bg-bg-card border border-accent-cyan/30 rounded-2xl p-6 sm:p-10 text-center">
-                <div className="text-4xl sm:text-5xl font-extrabold gradient-text mb-3">cokacdir</div>
+                <div className="text-4xl sm:text-5xl font-extrabold gradient-text mb-3">opendir</div>
                 <div className="text-zinc-400 text-sm">All-in-one terminal file manager</div>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                   {['Files', 'Editor', 'Git', 'Diff', 'Process', 'SSH', 'AI'].map((tag) => (

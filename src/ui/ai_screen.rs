@@ -18,15 +18,15 @@ use std::thread;
 use std::sync::OnceLock;
 use crate::utils::format::safe_truncate;
 
-/// Debug logging helper (only active when COKACDIR_DEBUG=1)
+/// Debug logging helper (only active when OPENDIR_DEBUG=1)
 fn debug_log(msg: &str) {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     let enabled = ENABLED.get_or_init(|| {
-        std::env::var("COKACDIR_DEBUG").map(|v| v == "1").unwrap_or(false)
+        std::env::var("OPENDIR_DEBUG").map(|v| v == "1").unwrap_or(false)
     });
     if !*enabled { return; }
     if let Some(home) = dirs::home_dir() {
-        let debug_dir = home.join(".cokacdir").join("debug");
+        let debug_dir = home.join(".opendir").join("debug");
         let _ = std::fs::create_dir_all(&debug_dir);
         let log_path = debug_dir.join("ai_screen.log");
         if let Ok(mut file) = OpenOptions::new()
@@ -380,9 +380,9 @@ struct SessionData {
     created_at: String,
 }
 
-/// Get the AI sessions directory path (~/.cokacdir/ai_sessions)
+/// Get the AI sessions directory path (~/.opendir/ai_sessions)
 fn ai_sessions_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".cokacdir").join("ai_sessions"))
+    dirs::home_dir().map(|h| h.join(".opendir").join("ai_sessions"))
 }
 
 impl AIScreenState {
@@ -422,7 +422,7 @@ impl AIScreenState {
         session_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     }
 
-    /// Save current session to file (~/.cokacdir/ai_sessions/[session_id].json)
+    /// Save current session to file (~/.opendir/ai_sessions/[session_id].json)
     pub fn save_session_to_file(&self) {
         // Only save if we have a session_id and some history
         let Some(ref session_id) = self.session_id else {

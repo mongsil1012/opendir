@@ -8,7 +8,7 @@ use russh::keys::*;
 use russh_sftp::client::SftpSession as RusshSftpSession;
 
 // Obfuscation key for password storage (NOT real encryption — prevents casual viewing only)
-const OBFUSCATION_KEY: &[u8] = b"cokacdir_remote_v1_key";
+const OBFUSCATION_KEY: &[u8] = b"opendir_remote_v1_key";
 
 /// Obfuscate a string for storage (XOR + base64, prefixed with "enc:")
 pub fn obfuscate(plaintext: &str) -> String {

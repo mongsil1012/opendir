@@ -28,7 +28,7 @@ use super::{
     theme::Theme,
 };
 
-const APP_TITLE: &str = concat!("COKACDIR v", env!("CARGO_PKG_VERSION"));
+const APP_TITLE: &str = concat!("OPENDIR v", env!("CARGO_PKG_VERSION"));
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     // Clone theme to avoid borrow conflict with mutable app
