@@ -1042,7 +1042,11 @@ fn handle_panel_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> 
     if app.is_ai_mode() {
         let ai_has_focus = app.ai_panel_index == Some(app.active_panel_index);
         if app.keybindings.panel_action(code, modifiers) == Some(PanelAction::SwitchPanel) {
-            app.switch_panel();
+            // AI fullscreen 모드에서는 패널 전환 차단
+            let ai_fullscreen = app.ai_state.as_ref().map_or(false, |s| s.ai_fullscreen);
+            if !ai_fullscreen {
+                app.switch_panel();
+            }
             return false;
         }
         if ai_has_focus {

@@ -789,6 +789,7 @@ pub enum AIScreenAction {
     KillLineRight,
     DeleteWordLeft,
     ClearHistory,
+    ToggleFullscreen,
 }
 
 pub fn default_ai_screen_keybindings() -> HashMap<AIScreenAction, Vec<String>> {
@@ -815,6 +816,7 @@ pub fn default_ai_screen_keybindings() -> HashMap<AIScreenAction, Vec<String>> {
     m.insert(AIScreenAction::KillLineRight, vec!["//Kill line right".into(), "ctrl+k".into()]);
     m.insert(AIScreenAction::DeleteWordLeft, vec!["//Delete word left".into(), "ctrl+w".into()]);
     m.insert(AIScreenAction::ClearHistory, vec!["//Clear conversation".into(), "ctrl+l".into()]);
+    m.insert(AIScreenAction::ToggleFullscreen, vec!["//Toggle fullscreen".into(), "ctrl+f".into()]);
 
     m
 }

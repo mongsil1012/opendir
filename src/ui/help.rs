@@ -374,6 +374,7 @@ fn build_help_content(theme: &Theme, kb: &Keybindings) -> Vec<Line<'static>> {
     lines.push(aik(AIScreenAction::PageUp, "Page scroll up"));
     lines.push(aik(AIScreenAction::PageDown, "Page scroll down"));
     lines.push(aik(AIScreenAction::ClearHistory, "Clear conversation"));
+    lines.push(aik(AIScreenAction::ToggleFullscreen, "Toggle fullscreen"));
     lines.push(aik(AIScreenAction::Escape, "Close assistant"));
     lines.push(Line::from(""));
 

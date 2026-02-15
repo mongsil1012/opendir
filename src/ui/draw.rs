@@ -174,6 +174,17 @@ fn draw_panels(frame: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
         .constraints(constraints)
         .split(chunks[0]);
 
+    // AI fullscreen 체크: fullscreen이면 AI만 전체 영역에 렌더링
+    let ai_fullscreen = app.ai_state.as_ref().map_or(false, |s| s.ai_fullscreen);
+    if ai_fullscreen && app.ai_panel_index.is_some() {
+        if let Some(ref mut state) = app.ai_state {
+            ai_screen::draw_with_focus(frame, state, chunks[0], theme, true);
+        }
+        draw_status_bar(frame, app, chunks[1], theme);
+        draw_function_bar(frame, app, chunks[2], theme);
+        return;
+    }
+
     let is_ai_mode = app.is_ai_mode();
     let has_dialog = app.dialog.is_some();
     let active_idx = app.active_panel_index;
@@ -429,28 +440,36 @@ fn draw_editor_with_ai(frame: &mut Frame, app: &mut App, area: Rect, theme: &The
         ])
         .split(area);
 
-    let panel_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[0]);
-
-    let ai_on_left = app.ai_panel_index.map(|i| i < app.active_panel_index).unwrap_or(false);
-
-    if ai_on_left {
-        // AI 왼쪽, 에디터 오른쪽
+    let ai_fullscreen = app.ai_state.as_ref().map_or(false, |s| s.ai_fullscreen);
+    if ai_fullscreen {
+        // AI만 전체 영역에 렌더링
         if let Some(ref mut state) = app.ai_state {
-            ai_screen::draw_with_focus(frame, state, panel_chunks[0], theme, false);
-        }
-        if let Some(ref mut state) = app.editor_state {
-            file_editor::draw(frame, state, panel_chunks[1], theme, &app.keybindings);
+            ai_screen::draw_with_focus(frame, state, chunks[0], theme, true);
         }
     } else {
-        // 에디터 왼쪽, AI 오른쪽
-        if let Some(ref mut state) = app.editor_state {
-            file_editor::draw(frame, state, panel_chunks[0], theme, &app.keybindings);
-        }
-        if let Some(ref mut state) = app.ai_state {
-            ai_screen::draw_with_focus(frame, state, panel_chunks[1], theme, false);
+        let panel_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(chunks[0]);
+
+        let ai_on_left = app.ai_panel_index.map(|i| i < app.active_panel_index).unwrap_or(false);
+
+        if ai_on_left {
+            // AI 왼쪽, 에디터 오른쪽
+            if let Some(ref mut state) = app.ai_state {
+                ai_screen::draw_with_focus(frame, state, panel_chunks[0], theme, false);
+            }
+            if let Some(ref mut state) = app.editor_state {
+                file_editor::draw(frame, state, panel_chunks[1], theme, &app.keybindings);
+            }
+        } else {
+            // 에디터 왼쪽, AI 오른쪽
+            if let Some(ref mut state) = app.editor_state {
+                file_editor::draw(frame, state, panel_chunks[0], theme, &app.keybindings);
+            }
+            if let Some(ref mut state) = app.ai_state {
+                ai_screen::draw_with_focus(frame, state, panel_chunks[1], theme, false);
+            }
         }
     }
 
@@ -471,28 +490,36 @@ fn draw_viewer_with_ai(frame: &mut Frame, app: &mut App, area: Rect, theme: &The
         ])
         .split(area);
 
-    let panel_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[0]);
-
-    let ai_on_left = app.ai_panel_index.map(|i| i < app.active_panel_index).unwrap_or(false);
-
-    if ai_on_left {
-        // AI 왼쪽, 뷰어 오른쪽
+    let ai_fullscreen = app.ai_state.as_ref().map_or(false, |s| s.ai_fullscreen);
+    if ai_fullscreen {
+        // AI만 전체 영역에 렌더링
         if let Some(ref mut state) = app.ai_state {
-            ai_screen::draw_with_focus(frame, state, panel_chunks[0], theme, false);
-        }
-        if let Some(ref mut state) = app.viewer_state {
-            file_viewer::draw(frame, state, panel_chunks[1], theme, &app.keybindings);
+            ai_screen::draw_with_focus(frame, state, chunks[0], theme, true);
         }
     } else {
-        // 뷰어 왼쪽, AI 오른쪽
-        if let Some(ref mut state) = app.viewer_state {
-            file_viewer::draw(frame, state, panel_chunks[0], theme, &app.keybindings);
-        }
-        if let Some(ref mut state) = app.ai_state {
-            ai_screen::draw_with_focus(frame, state, panel_chunks[1], theme, false);
+        let panel_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(chunks[0]);
+
+        let ai_on_left = app.ai_panel_index.map(|i| i < app.active_panel_index).unwrap_or(false);
+
+        if ai_on_left {
+            // AI 왼쪽, 뷰어 오른쪽
+            if let Some(ref mut state) = app.ai_state {
+                ai_screen::draw_with_focus(frame, state, panel_chunks[0], theme, false);
+            }
+            if let Some(ref mut state) = app.viewer_state {
+                file_viewer::draw(frame, state, panel_chunks[1], theme, &app.keybindings);
+            }
+        } else {
+            // 뷰어 왼쪽, AI 오른쪽
+            if let Some(ref mut state) = app.viewer_state {
+                file_viewer::draw(frame, state, panel_chunks[0], theme, &app.keybindings);
+            }
+            if let Some(ref mut state) = app.ai_state {
+                ai_screen::draw_with_focus(frame, state, panel_chunks[1], theme, false);
+            }
         }
     }
 
