@@ -8,6 +8,7 @@ set -e
 
 BINARY_NAME="opendir"
 BASE_URL="https://opendir.cokac.com/dist"
+DIST_DIR="${OPENDIR_DIST_DIR:-}"
 
 # Colors
 RED='\033[0;31m'
@@ -86,6 +87,25 @@ download() {
     fi
 }
 
+resolve_dist_dir() {
+    if [ -n "$DIST_DIR" ]; then
+        echo "$DIST_DIR"
+        return
+    fi
+
+    if [ -n "$0" ] && [ "$0" != "-" ] && [ -f "$0" ] && [ -d "$(dirname "$0")/dist" ]; then
+        echo "$(dirname "$0")/dist"
+        return
+    fi
+
+    if [ -f "$(pwd)/install.sh" ] && [ -d "./dist" ]; then
+        echo "$(pwd)/dist"
+        return
+    fi
+
+    echo ""
+}
+
 # Shell wrapper function to add
 SHELL_FUNC='opendir() { command opendir "$@" && cd "$(cat ~/.opendir/lastdir 2>/dev/null || pwd)"; }'
 
@@ -149,15 +169,31 @@ main() {
     # Build download URL
     local filename="${BINARY_NAME}-${os}-${arch}"
     local url="${BASE_URL}/${filename}"
+    local local_dist_dir
+    local local_file
+    local source_file
+    local_dist_dir="$(resolve_dist_dir)"
+    local_file="${local_dist_dir:+$local_dist_dir/$filename}"
 
     # Create temp file
     local tmpfile
     tmpfile="$(mktemp)"
     trap 'rm -f "$tmpfile"' EXIT
 
-    # Download
-    if ! download "$url" "$tmpfile"; then
-        error "Download failed"
+    if [ -n "$local_file" ] && [ -f "$local_file" ]; then
+        info "Using local dist file: $local_file"
+        source_file="$local_file"
+    else
+        source_file="$url"
+    fi
+
+    # Download or copy from local dist
+    if [ "$source_file" = "$url" ]; then
+        if ! download "$url" "$tmpfile"; then
+            error "Download failed"
+        fi
+    else
+        cp "$source_file" "$tmpfile"
     fi
 
     # Make executable
