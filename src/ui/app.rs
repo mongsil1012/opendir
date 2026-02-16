@@ -3303,11 +3303,11 @@ impl App {
 
         self.dialog = Some(Dialog {
             dialog_type: DialogType::EncryptConfirm,
-            input: String::new(),
-            cursor_pos: 0,
-            message: format!("Encrypt {} file(s) in {}?", count, dir.display()),
+            input: "1800".to_string(),
+            cursor_pos: 4,
+            message: format!("Encrypt {} file(s)? Split size MB (0=no split):", count),
             completion: None,
-            selected_button: 1,  // Default: No
+            selected_button: 0,
             selection: None,
         });
     }
@@ -3345,7 +3345,7 @@ impl App {
         });
     }
 
-    pub fn execute_encrypt(&mut self) {
+    pub fn execute_encrypt(&mut self, split_size_mb: u64) {
         let key_path = match crate::enc::ensure_key() {
             Ok(p) => p,
             Err(e) => {
@@ -3364,7 +3364,7 @@ impl App {
         progress.receiver = Some(rx);
 
         thread::spawn(move || {
-            crate::enc::pack_directory_with_progress(&dir, &key_path, tx, cancel_flag);
+            crate::enc::pack_directory_with_progress(&dir, &key_path, tx, cancel_flag, split_size_mb);
         });
 
         self.file_operation_progress = Some(progress);

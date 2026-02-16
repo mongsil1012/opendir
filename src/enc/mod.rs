@@ -22,7 +22,6 @@ use error::CokacencError;
 use crate::services::file_ops::ProgressMessage;
 
 const READ_BUF_SIZE: usize = 64 * 1024; // 64KB
-const DEFAULT_SPLIT_SIZE_MB: u64 = 1800;
 
 // ─── Chunk metadata (embedded inside each encrypted chunk) ─────────────
 
@@ -251,6 +250,7 @@ pub fn pack_directory_with_progress(
     key_path: &Path,
     tx: Sender<ProgressMessage>,
     cancel_flag: Arc<AtomicBool>,
+    split_size_mb: u64,
 ) {
     let password = match load_key_file(key_path) {
         Ok(p) => p,
@@ -261,7 +261,7 @@ pub fn pack_directory_with_progress(
         }
     };
 
-    let split_size = DEFAULT_SPLIT_SIZE_MB * 1024 * 1024;
+    let split_size = if split_size_mb == 0 { u64::MAX } else { split_size_mb * 1024 * 1024 };
 
     let mut entries: Vec<_> = match fs::read_dir(dir) {
         Ok(rd) => rd.filter_map(|e| e.ok())

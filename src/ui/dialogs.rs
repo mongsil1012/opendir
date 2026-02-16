@@ -272,7 +272,7 @@ pub fn draw_dialog(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, th
     // Y좌표는 max_height 기준 고정, 실제 높이는 동적
     let (width, height, max_height) = match dialog.dialog_type {
         DialogType::Delete | DialogType::LargeImageConfirm | DialogType::LargeFileConfirm | DialogType::TrueColorWarning
-        | DialogType::EncryptConfirm | DialogType::DecryptConfirm => {
+        | DialogType::DecryptConfirm => {
             (SIMPLE_DIALOG_WIDTH, CONFIRM_DIALOG_HEIGHT, CONFIRM_DIALOG_HEIGHT)
         }
         DialogType::ExtensionHandlerError => {
@@ -303,7 +303,8 @@ pub fn draw_dialog(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, th
 
             (w, h, max_h)
         }
-        DialogType::Search | DialogType::Mkdir | DialogType::Mkfile | DialogType::Rename | DialogType::Tar => {
+        DialogType::Search | DialogType::Mkdir | DialogType::Mkfile | DialogType::Rename | DialogType::Tar
+        | DialogType::EncryptConfirm => {
             (SIMPLE_DIALOG_WIDTH, SIMPLE_INPUT_HEIGHT, SIMPLE_INPUT_HEIGHT)
         }
         DialogType::Progress => {
@@ -384,7 +385,7 @@ pub fn draw_dialog(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, th
             draw_confirm_dialog(frame, dialog, dialog_area, theme, " Delete ");
         }
         DialogType::EncryptConfirm => {
-            draw_confirm_dialog(frame, dialog, dialog_area, theme, " Encrypt ");
+            draw_simple_input_dialog(frame, dialog, dialog_area, theme);
         }
         DialogType::DecryptConfirm => {
             draw_confirm_dialog(frame, dialog, dialog_area, theme, " Decrypt ");
@@ -821,6 +822,7 @@ fn draw_simple_input_dialog(frame: &mut Frame, dialog: &Dialog, area: Rect, them
         DialogType::Rename => " Rename ",
         DialogType::Tar => " Create Archive ",
         DialogType::RemoteProfileSave => " Save Profile ",
+        DialogType::EncryptConfirm => " Encrypt ",
         _ => " Input ",
     };
 
@@ -945,7 +947,8 @@ fn draw_simple_input_dialog(frame: &mut Frame, dialog: &Dialog, area: Rect, them
         || dialog.dialog_type == DialogType::Mkdir
         || dialog.dialog_type == DialogType::Mkfile
         || dialog.dialog_type == DialogType::Rename
-        || dialog.dialog_type == DialogType::RemoteProfileSave)
+        || dialog.dialog_type == DialogType::RemoteProfileSave
+        || dialog.dialog_type == DialogType::EncryptConfirm)
         && !dialog.message.is_empty()
     {
         let message_y = inner.y;
@@ -2236,7 +2239,8 @@ pub fn handle_paste(app: &mut App, text: &str) {
         match dialog.dialog_type {
             // Dialog types with text input
             DialogType::Search | DialogType::Mkdir | DialogType::Mkfile
-            | DialogType::Rename | DialogType::Tar | DialogType::BinaryFileHandler => {
+            | DialogType::Rename | DialogType::Tar | DialogType::BinaryFileHandler
+            | DialogType::EncryptConfirm => {
                 // Delete selection if exists
                 if let Some((sel_start, sel_end)) = dialog.selection.take() {
                     let mut chars: Vec<char> = dialog.input.chars().collect();
@@ -2328,29 +2332,6 @@ pub fn handle_dialog_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers
                         if dialog.selected_button == 0 {
                             app.dialog = None;
                             app.execute_delete();
-                        } else {
-                            app.dialog = None;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            DialogType::EncryptConfirm => {
-                match code {
-                    KeyCode::Char('y') | KeyCode::Char('Y') => {
-                        app.dialog = None;
-                        app.execute_encrypt();
-                    }
-                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                        app.dialog = None;
-                    }
-                    KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
-                        dialog.selected_button = 1 - dialog.selected_button;
-                    }
-                    KeyCode::Enter => {
-                        if dialog.selected_button == 0 {
-                            app.dialog = None;
-                            app.execute_encrypt();
                         } else {
                             app.dialog = None;
                         }
@@ -2565,6 +2546,30 @@ pub fn handle_dialog_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers
                                 }
                                 return false;
                             }
+                        }
+
+                        // For EncryptConfirm, parse split size
+                        if dialog_type == DialogType::EncryptConfirm {
+                            let trimmed = input.trim();
+                            if trimmed.is_empty() {
+                                if let Some(ref mut d) = app.dialog {
+                                    d.message = "Please enter a number!".to_string();
+                                }
+                                return false;
+                            }
+                            match trimmed.parse::<u64>() {
+                                Ok(split_size_mb) => {
+                                    app.dialog = None;
+                                    app.execute_encrypt(split_size_mb);
+                                }
+                                Err(_) => {
+                                    if let Some(ref mut d) = app.dialog {
+                                        d.message = format!("Invalid number: '{}'!", trimmed);
+                                    }
+                                    return false;
+                                }
+                            }
+                            return false;
                         }
 
                         app.dialog = None;
