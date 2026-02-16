@@ -1661,6 +1661,14 @@ pub fn handle_input(state: &mut AIScreenState, code: KeyCode, modifiers: KeyModi
         KeyCode::Backspace => {
             state.backspace();
         }
+        KeyCode::Char('h') if ctrl => {
+            // Some terminals send Backspace as Ctrl+H.
+            state.backspace();
+        }
+        KeyCode::Char('\u{8}') | KeyCode::Char('\u{7f}') => {
+            // Fallback for terminals that emit raw ASCII BS/DEL.
+            state.backspace();
+        }
         KeyCode::Delete => {
             state.delete_char();
         }
@@ -1953,6 +1961,32 @@ mod tests {
         // Cursor should NOT move, scroll should change
         assert_eq!(state.cursor_line, 1);
         assert_eq!(state.scroll_offset, 29);
+    }
+
+    #[test]
+    fn test_ctrl_h_behaves_like_backspace() {
+        let mut state = create_test_state();
+        state.set_input_text("abc");
+        state.cursor_line = 0;
+        state.cursor_col = 3;
+
+        handle_input(&mut state, KeyCode::Char('h'), KeyModifiers::CONTROL);
+
+        assert_eq!(state.get_input_text(), "ab");
+        assert_eq!(state.cursor_col, 2);
+    }
+
+    #[test]
+    fn test_ascii_del_behaves_like_backspace() {
+        let mut state = create_test_state();
+        state.set_input_text("abc");
+        state.cursor_line = 0;
+        state.cursor_col = 3;
+
+        handle_input(&mut state, KeyCode::Char('\u{7f}'), KeyModifiers::empty());
+
+        assert_eq!(state.get_input_text(), "ab");
+        assert_eq!(state.cursor_col, 2);
     }
 
     #[test]

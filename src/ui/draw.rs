@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::services::remote;
 use super::{
-    app::{App, Screen},
+    app::{App, ContextMenuState, Screen},
     dialogs,
     file_editor,
     file_info,
@@ -117,6 +117,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         advanced_search::draw(frame, &app.advanced_search_state, area, &theme);
     }
 
+    // Draw context menu overlay on file panel
+    if app.current_screen == Screen::FilePanel {
+        if let Some(ref menu) = app.context_menu {
+            draw_context_menu(frame, app, menu, area, &theme);
+        }
+    }
+
     // Draw dialog overlay on top of everything (모든 화면 위에 다이얼로그 표시)
     if let Some(ref dialog) = app.dialog {
         dialogs::draw_dialog(frame, app, dialog, area, &theme);
@@ -218,6 +225,57 @@ fn draw_panels(frame: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
 
     // Function bar or message
     draw_function_bar(frame, app, chunks[2], theme);
+}
+
+fn context_menu_rect(app: &App, menu: &ContextMenuState, area: Rect) -> Rect {
+    let (menu_w, menu_h) = app.context_menu_dimensions();
+    let width = menu_w.min(area.width.max(1));
+    let height = menu_h.min(area.height.max(1));
+    let max_x = area.x.saturating_add(area.width.saturating_sub(width));
+    let max_y = area.y.saturating_add(area.height.saturating_sub(height));
+    let x = menu.x.min(max_x);
+    let y = menu.y.min(max_y);
+    Rect::new(x, y, width, height)
+}
+
+fn draw_context_menu(frame: &mut Frame, app: &App, menu: &ContextMenuState, area: Rect, theme: &Theme) {
+    let menu_area = context_menu_rect(app, menu, area);
+    let actions = app.context_menu_actions();
+
+    frame.render_widget(Clear, menu_area);
+
+    let block = Block::default()
+        .title(" Menu ")
+        .title_style(Style::default().fg(theme.dialog.title).add_modifier(Modifier::BOLD))
+        .borders(ratatui::widgets::Borders::ALL)
+        .border_style(Style::default().fg(theme.dialog.border))
+        .style(Style::default().bg(theme.dialog.bg));
+    let inner = block.inner(menu_area);
+    frame.render_widget(block, menu_area);
+
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let selected = menu.selected_index.min(actions.len().saturating_sub(1));
+    let selected_style = Style::default()
+        .fg(theme.dialog.button_selected_text)
+        .bg(theme.dialog.button_selected_bg)
+        .add_modifier(Modifier::BOLD);
+    let normal_style = Style::default().fg(theme.dialog.text);
+
+    for (i, action) in actions.iter().enumerate() {
+        let y = inner.y + i as u16;
+        if y >= inner.y + inner.height {
+            break;
+        }
+        let style = if i == selected { selected_style } else { normal_style };
+        let label = format!(" {:<width$}", action.label(), width = inner.width.saturating_sub(1) as usize);
+        frame.render_widget(
+            Paragraph::new(Span::styled(label, style)),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+    }
 }
 
 /// Public function for drawing panel background (used by overlay screens)
