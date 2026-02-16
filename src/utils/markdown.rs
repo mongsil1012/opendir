@@ -1174,7 +1174,7 @@ mod tests {
         // Actual Claude response (captured from --prompt)
         let raw_response = r#"안녕하세요! 터미널 파일 관리자 도우미입니다.
 
-현재 작업 디렉토리는 /mnt/hgfs/vmware_ubuntu_shared/cokacdir_rust 입니다.
+현재 작업 디렉토리는 /mnt/hgfs/vmware_ubuntu_shared/opendir_rust 입니다.
 
 어떤 파일 작업을 도와드릴까요? 예를 들어:
 - 파일/폴더 목록 보기

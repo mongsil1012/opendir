@@ -1,8 +1,8 @@
-# COKACDIR Website
+# OPENDIR Website
 
-Marketing and documentation website for [COKACDIR](https://github.com/kstost/cokacdir) - a multi-panel terminal file manager written in Rust.
+Marketing and documentation website for [OPENDIR](https://github.com/kstost/opendir) - a multi-panel terminal file manager written in Rust.
 
-**Live Site:** [https://cokacdir.cokac.com](https://cokacdir.cokac.com)
+**Live Site:** [https://opendir.cokac.com](https://opendir.cokac.com)
 
 ## Tech Stack
 
@@ -157,7 +157,7 @@ The website is configured for static hosting:
 
 2. Deploy the `dist/` directory to your hosting provider.
 
-The `CNAME` file in the parent directory configures the custom domain `cokacdir.cokac.com` for GitHub Pages.
+The `CNAME` file in the parent directory configures the custom domain `opendir.cokac.com` for GitHub Pages.
 
 ## Scripts
 
@@ -169,8 +169,8 @@ The `CNAME` file in the parent directory configures the custom domain `cokacdir.
 
 ## Related
 
-- [COKACDIR Main Repository](https://github.com/kstost/cokacdir) - The Rust file manager
-- [Live Demo](https://cokacdir.cokac.com) - Production website
+- [OPENDIR Main Repository](https://github.com/kstost/opendir) - The Rust file manager
+- [Live Demo](https://opendir.cokac.com) - Production website
 
 ## License
 

@@ -57,7 +57,7 @@ function TutorialPageInner() {
             </Link>
             <div className="hidden sm:block h-5 w-px bg-zinc-700" />
             <Link to="/" className="hidden sm:block">
-              <span className="gradient-text font-bold text-lg">cokacdir</span>
+              <span className="gradient-text font-bold text-lg">opendir</span>
             </Link>
           </div>
 
@@ -70,7 +70,7 @@ function TutorialPageInner() {
           </div>
 
           <a
-            href="https://github.com/kstost/cokacdir"
+            href="https://github.com/kstost/opendir"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors"
@@ -99,8 +99,8 @@ function TutorialPageInner() {
               </h1>
               <p className="text-lg text-zinc-400 leading-relaxed max-w-3xl">
                 {t(
-                  'A step-by-step guide for first-time cokacdir users. Follow along from installation to advanced features, or jump to any topic from the sidebar.',
-                  'cokacdir를 처음 사용하는 분을 위한 단계별 안내서입니다. 설치부터 고급 기능까지, 순서대로 따라하거나 왼쪽 목차에서 원하는 항목을 골라 읽을 수 있습니다.'
+                  'A step-by-step guide for first-time opendir users. Follow along from installation to advanced features, or jump to any topic from the sidebar.',
+                  'opendir를 처음 사용하는 분을 위한 단계별 안내서입니다. 설치부터 고급 기능까지, 순서대로 따라하거나 왼쪽 목차에서 원하는 항목을 골라 읽을 수 있습니다.'
                 )}
               </p>
             </div>
@@ -117,7 +117,7 @@ function TutorialPageInner() {
                 {t('Back to Home', '홈으로 돌아가기')}
               </Link>
               <a
-                href="https://github.com/kstost/cokacdir"
+                href="https://github.com/kstost/opendir"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors"

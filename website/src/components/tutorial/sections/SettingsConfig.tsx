@@ -14,7 +14,7 @@ export default function SettingsConfig() {
       {lang === 'ko' ? (
         <>
           <p className="text-zinc-400 mb-6 leading-relaxed">
-            cokacdir의 외관이나 동작 방식을 취향에 맞게 바꿀 수 있습니다.
+            opendir의 외관이나 동작 방식을 취향에 맞게 바꿀 수 있습니다.
             테마(색상), 비교 화면 스타일 등을 설정 화면에서 변경할 수 있습니다.
           </p>
 
@@ -58,11 +58,11 @@ export default function SettingsConfig() {
 
           <SectionHeading id="theme-change" level={3}>테마 (색상) 변경</SectionHeading>
           <p className="text-zinc-400 mb-4">
-            cokacdir의 색상 조합을 바꿀 수 있습니다. 기본 테마가 마음에 안 들면 다른 테마로 바꿔보세요.
+            opendir의 색상 조합을 바꿀 수 있습니다. 기본 테마가 마음에 안 들면 다른 테마로 바꿔보세요.
           </p>
           <p className="text-zinc-400 mb-4">
-            테마 파일은 cokacdir를 처음 실행할 때 자동으로 생성됩니다.
-            위치는 <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.cokacdir/themes/</code> 폴더입니다.
+            테마 파일은 opendir를 처음 실행할 때 자동으로 생성됩니다.
+            위치는 <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.opendir/themes/</code> 폴더입니다.
           </p>
 
           <TipBox>
@@ -71,14 +71,14 @@ export default function SettingsConfig() {
           </TipBox>
 
           <TipBox variant="note">
-            설정은 <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.cokacdir/</code> 폴더에
-            저장되어 다음에 cokacdir를 실행할 때도 유지됩니다.
+            설정은 <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.opendir/</code> 폴더에
+            저장되어 다음에 opendir를 실행할 때도 유지됩니다.
           </TipBox>
         </>
       ) : (
         <>
           <p className="text-zinc-400 mb-6 leading-relaxed">
-            Customize cokacdir's appearance and behavior to your liking.
+            Customize opendir's appearance and behavior to your liking.
             Change themes (colors), diff view styles, and more from the settings screen.
           </p>
 
@@ -122,11 +122,11 @@ export default function SettingsConfig() {
 
           <SectionHeading id="theme-change" level={3}>Changing Themes (Colors)</SectionHeading>
           <p className="text-zinc-400 mb-4">
-            Change cokacdir's color scheme. If you don't like the default theme, try a different one.
+            Change opendir's color scheme. If you don't like the default theme, try a different one.
           </p>
           <p className="text-zinc-400 mb-4">
-            Theme files are automatically generated when you first run cokacdir.
-            They're located in the <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.cokacdir/themes/</code> folder.
+            Theme files are automatically generated when you first run opendir.
+            They're located in the <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.opendir/themes/</code> folder.
           </p>
 
           <TipBox>
@@ -135,8 +135,8 @@ export default function SettingsConfig() {
           </TipBox>
 
           <TipBox variant="note">
-            Settings are saved in the <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.cokacdir/</code> folder
-            and persist across cokacdir sessions.
+            Settings are saved in the <code className="text-accent-cyan font-mono bg-bg-elevated px-1 py-0.5 rounded">~/.opendir/</code> folder
+            and persist across opendir sessions.
           </TipBox>
         </>
       )}

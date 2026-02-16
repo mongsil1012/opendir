@@ -6,27 +6,31 @@ mod config;
 use std::io;
 use std::env;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, DisableBracketedPaste, EnableBracketedPaste,
+        Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
     backend::CrosstermBackend,
     Terminal,
 };
 
-use crate::ui::app::{App, Screen};
+use crate::ui::app::{App, ContextMenuState, Screen};
 use crate::services::claude;
 use crate::utils::markdown::{render_markdown, MarkdownTheme, is_line_empty};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn print_help() {
-    println!("cokacdir {} - Multi-panel terminal file manager", VERSION);
+    println!("opendir {} - Multi-panel terminal file manager", VERSION);
     println!();
     println!("USAGE:");
-    println!("    cokacdir [OPTIONS] [PATH...]");
+    println!("    opendir [OPTIONS] [PATH...]");
     println!();
     println!("ARGS:");
     println!("    [PATH...]               Open panels at given paths (max 10)");
@@ -38,7 +42,7 @@ fn print_help() {
     println!("    --design                Enable theme hot-reload (for theme development)");
     println!("    --base64 <TEXT>         Decode base64 and print (internal use)");
     println!();
-    println!("HOMEPAGE: https://cokacdir.cokac.com");
+    println!("HOMEPAGE: https://opendir.cokac.com");
 }
 
 fn handle_base64(encoded: &str) {
@@ -58,16 +62,18 @@ fn handle_base64(encoded: &str) {
 }
 
 fn print_version() {
-    println!("cokacdir {}", VERSION);
+    println!("opendir {}", VERSION);
 }
 
 fn handle_prompt(prompt: &str) {
     use crate::ui::theme::Theme;
 
-    // Check if Claude is available
-    if !claude::is_claude_available() {
-        eprintln!("Error: Claude CLI is not available.");
-        eprintln!("Please install Claude CLI: https://claude.ai/cli");
+    // Check if an AI CLI is available
+    if !claude::is_ai_cli_available() {
+        eprintln!("Error: Claude CLI or OpenCode CLI is not available.");
+        eprintln!("Please install one of them:");
+        eprintln!("- Claude CLI: https://claude.ai/cli");
+        eprintln!("- OpenCode: https://github.com/anomalyco/opencode");
         return;
     }
 
@@ -153,7 +159,7 @@ fn main() -> io::Result<()> {
             "--prompt" => {
                 if i + 1 >= args.len() {
                     eprintln!("Error: --prompt requires a text argument");
-                    eprintln!("Usage: cokacdir --prompt \"your question\"");
+                    eprintln!("Usage: opendir --prompt \"your question\"");
                     return Ok(());
                 }
                 handle_prompt(&args[i + 1]);
@@ -282,12 +288,7 @@ fn print_goodbye_message() {
     // Check for updates
     check_for_updates();
 
-    println!("Thank you for using COKACDIR! 🙏");
-    println!();
-    println!("If you found this useful, consider checking out my other content:");
-    println!("  📺 YouTube: https://www.youtube.com/@코드깎는노인");
-    println!("  📚 Classes: https://cokac.com/");
-    println!();
+    println!("Thank you for using OPENDIR! 🙏");
     println!("Happy coding!");
 }
 
@@ -299,7 +300,7 @@ fn check_for_updates() {
         .args([
             "-fsSL",
             "--max-time", "3",
-            "https://raw.githubusercontent.com/kstost/cokacdir/refs/heads/main/Cargo.toml"
+            "https://raw.githubusercontent.com/kstost/opendir/refs/heads/main/Cargo.toml"
         ])
         .output();
 
@@ -317,7 +318,7 @@ fn check_for_updates() {
             println!("│  🚀 New version available: v{} (current: v{})                            ", latest, current_version);
             println!("│                                                                          │");
             println!("│  Update with:                                                            │");
-            println!("│  /bin/bash -c \"$(curl -fsSL https://cokacdir.cokac.com/install.sh)\"      │");
+            println!("│  /bin/bash -c \"$(curl -fsSL https://opendir.cokac.com/install.sh)\"      │");
             println!("└──────────────────────────────────────────────────────────────────────────┘");
             println!();
         }
@@ -363,10 +364,278 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
     false
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MouseClickState {
+    panel_index: usize,
+    file_index: Option<usize>,
+    at: Instant,
+}
+
+const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(350);
+
+fn rect_contains(rect: Rect, x: u16, y: u16) -> bool {
+    let right = rect.x.saturating_add(rect.width);
+    let bottom = rect.y.saturating_add(rect.height);
+    x >= rect.x && x < right && y >= rect.y && y < bottom
+}
+
+fn panel_chunks_for_area(area: Rect, panel_count: usize) -> Vec<Rect> {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(5),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    if panel_count == 0 {
+        return Vec::new();
+    }
+
+    let constraints: Vec<Constraint> = (0..panel_count)
+        .map(|_| Constraint::Ratio(1, panel_count as u32))
+        .collect();
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(constraints)
+        .split(chunks[0])
+        .to_vec()
+}
+
+fn file_index_at_position(app: &App, panel_index: usize, panel_rect: Rect, y: u16) -> Option<usize> {
+    if panel_rect.width < 2 || panel_rect.height < 2 {
+        return None;
+    }
+
+    let inner = Rect::new(
+        panel_rect.x.saturating_add(1),
+        panel_rect.y.saturating_add(1),
+        panel_rect.width.saturating_sub(2),
+        panel_rect.height.saturating_sub(2),
+    );
+
+    if inner.height < 3 || inner.width < 1 {
+        return None;
+    }
+
+    let list_top = inner.y.saturating_add(1);
+    let visible_height = inner.height.saturating_sub(2);
+    let list_bottom = list_top.saturating_add(visible_height);
+    if y < list_top || y >= list_bottom {
+        return None;
+    }
+
+    let row = (y - list_top) as usize;
+    let panel = &app.panels[panel_index];
+    let idx = panel.scroll_offset.saturating_add(row);
+    (idx < panel.files.len()).then_some(idx)
+}
+
+fn context_menu_rect(app: &App, menu: &ContextMenuState, area: Rect) -> Rect {
+    let (menu_w, menu_h) = app.context_menu_dimensions();
+    let width = menu_w.min(area.width.max(1));
+    let height = menu_h.min(area.height.max(1));
+    let max_x = area.x.saturating_add(area.width.saturating_sub(width));
+    let max_y = area.y.saturating_add(area.height.saturating_sub(height));
+    let x = menu.x.min(max_x);
+    let y = menu.y.min(max_y);
+    Rect::new(x, y, width, height)
+}
+
+fn context_menu_item_at(app: &App, menu_rect: Rect, x: u16, y: u16) -> Option<usize> {
+    if !rect_contains(menu_rect, x, y) || menu_rect.width < 3 || menu_rect.height < 3 {
+        return None;
+    }
+
+    let inner_x = menu_rect.x.saturating_add(1);
+    let inner_y = menu_rect.y.saturating_add(1);
+    let inner_w = menu_rect.width.saturating_sub(2);
+    let inner_h = menu_rect.height.saturating_sub(2);
+
+    if x < inner_x || x >= inner_x.saturating_add(inner_w) {
+        return None;
+    }
+    if y < inner_y || y >= inner_y.saturating_add(inner_h) {
+        return None;
+    }
+
+    let idx = (y - inner_y) as usize;
+    (idx < app.context_menu_actions().len()).then_some(idx)
+}
+
+fn is_primary_click(mouse: &MouseEvent) -> bool {
+    matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+        && !mouse.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+fn is_secondary_click(mouse: &MouseEvent) -> bool {
+    matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right))
+        || (matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && mouse.modifiers.contains(KeyModifiers::CONTROL))
+}
+
+fn handle_mouse_event(
+    app: &mut App,
+    area: Rect,
+    mouse: MouseEvent,
+    last_left_click: &mut Option<MouseClickState>,
+) {
+    if app.current_screen != Screen::FilePanel {
+        return;
+    }
+    if app.dialog.is_some() || app.advanced_search_state.active {
+        return;
+    }
+
+    let x = mouse.column;
+    let y = mouse.row;
+
+    // Handle clicks on an already-open context menu first.
+    if let Some(menu_snapshot) = app.context_menu.clone() {
+        let menu_rect = context_menu_rect(app, &menu_snapshot, area);
+        if is_primary_click(&mouse) {
+            if rect_contains(menu_rect, x, y) {
+                if let Some(item_idx) = context_menu_item_at(app, menu_rect, x, y) {
+                    if let Some(action) = app.context_menu_actions().get(item_idx).copied() {
+                        app.execute_context_menu_action(action);
+                    } else {
+                        app.close_context_menu();
+                    }
+                } else {
+                    app.close_context_menu();
+                }
+                *last_left_click = None;
+                return;
+            }
+            app.close_context_menu();
+        } else if is_secondary_click(&mouse) {
+            if rect_contains(menu_rect, x, y) {
+                if let Some(item_idx) = context_menu_item_at(app, menu_rect, x, y) {
+                    if let Some(ref mut menu) = app.context_menu {
+                        menu.selected_index = item_idx;
+                    }
+                }
+                *last_left_click = None;
+                return;
+            }
+            app.close_context_menu();
+        }
+    }
+
+    let panel_chunks = panel_chunks_for_area(area, app.panels.len());
+    let Some(panel_index) = panel_chunks.iter().position(|r| rect_contains(*r, x, y)) else {
+        if is_primary_click(&mouse) {
+            *last_left_click = None;
+        }
+        return;
+    };
+
+    // AI panel accepts focus, but not file interactions.
+    if app.ai_panel_index == Some(panel_index) {
+        if is_primary_click(&mouse) || is_secondary_click(&mouse) {
+            app.focus_panel_item(panel_index, None, false);
+            *last_left_click = None;
+        }
+        return;
+    }
+
+    let file_index = file_index_at_position(app, panel_index, panel_chunks[panel_index], y);
+
+    if is_primary_click(&mouse) {
+        app.focus_panel_item(panel_index, file_index, file_index.is_some());
+        app.close_context_menu();
+
+        if let Some(clicked_index) = file_index {
+            let now = Instant::now();
+            let is_double_click = last_left_click
+                .map(|prev| {
+                    prev.panel_index == panel_index
+                        && prev.file_index == Some(clicked_index)
+                        && now.duration_since(prev.at) <= DOUBLE_CLICK_THRESHOLD
+                })
+                .unwrap_or(false);
+
+            if is_double_click {
+                app.enter_selected();
+                app.close_context_menu();
+                *last_left_click = None;
+            } else {
+                *last_left_click = Some(MouseClickState {
+                    panel_index,
+                    file_index: Some(clicked_index),
+                    at: now,
+                });
+            }
+        } else {
+            *last_left_click = None;
+        }
+    } else if is_secondary_click(&mouse) {
+        app.focus_panel_item(panel_index, file_index, file_index.is_some());
+        app.open_context_menu(panel_index, file_index, x, y);
+        *last_left_click = None;
+    } else {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                app.focus_panel_item(panel_index, None, false);
+                app.move_cursor(-3);
+                *last_left_click = None;
+            }
+            MouseEventKind::ScrollDown => {
+                app.focus_panel_item(panel_index, None, false);
+                app.move_cursor(3);
+                *last_left_click = None;
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn click(kind: MouseEventKind, modifiers: KeyModifiers) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column: 0,
+            row: 0,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn ctrl_left_click_is_secondary_click() {
+        let mouse = click(
+            MouseEventKind::Down(MouseButton::Left),
+            KeyModifiers::CONTROL,
+        );
+        assert!(is_secondary_click(&mouse));
+        assert!(!is_primary_click(&mouse));
+    }
+
+    #[test]
+    fn plain_left_click_is_primary_click() {
+        let mouse = click(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE);
+        assert!(is_primary_click(&mouse));
+        assert!(!is_secondary_click(&mouse));
+    }
+
+    #[test]
+    fn plain_right_click_is_secondary_click() {
+        let mouse = click(MouseEventKind::Down(MouseButton::Right), KeyModifiers::NONE);
+        assert!(is_secondary_click(&mouse));
+        assert!(!is_primary_click(&mouse));
+    }
+}
+
 fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> io::Result<()> {
+    let mut last_left_click: Option<MouseClickState> = None;
+
     loop {
         // Check if full redraw is needed (after terminal mode command like vim)
         if app.needs_full_redraw {
@@ -704,6 +973,11 @@ fn run_app<B: ratatui::backend::Backend>(
                         _ => {}
                     }
                 }
+                Event::Mouse(mouse) => {
+                    let size = terminal.size()?;
+                    let area = Rect::new(0, 0, size.width, size.height);
+                    handle_mouse_event(app, area, mouse, &mut last_left_click);
+                }
                 _ => {}
             }
         }
@@ -711,6 +985,48 @@ fn run_app<B: ratatui::backend::Backend>(
 }
 
 fn handle_panel_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> bool {
+    // Context menu has priority over normal file panel shortcuts.
+    if app.context_menu.is_some() {
+        let action_count = app.context_menu_actions().len();
+        match code {
+            KeyCode::Up => {
+                if action_count > 0 {
+                    if let Some(ref mut menu) = app.context_menu {
+                        if menu.selected_index == 0 {
+                            menu.selected_index = action_count - 1;
+                        } else {
+                            menu.selected_index -= 1;
+                        }
+                    }
+                }
+            }
+            KeyCode::Down => {
+                if action_count > 0 {
+                    if let Some(ref mut menu) = app.context_menu {
+                        menu.selected_index = (menu.selected_index + 1) % action_count;
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                if action_count > 0 {
+                    let selected = app.context_menu.as_ref().map(|m| m.selected_index).unwrap_or(0);
+                    if let Some(action) = app.context_menu_actions().get(selected).copied() {
+                        app.execute_context_menu_action(action);
+                    } else {
+                        app.close_context_menu();
+                    }
+                } else {
+                    app.close_context_menu();
+                }
+            }
+            KeyCode::Esc | KeyCode::Left | KeyCode::Right => {
+                app.close_context_menu();
+            }
+            _ => {}
+        }
+        return false;
+    }
+
     // AI 모드일 때: active_panel이 AI 패널 쪽이면 AI로 입력 전달, 아니면 파일 패널 조작
     if app.is_ai_mode() {
         let ai_has_focus = app.ai_panel_index == Some(app.active_panel_index);

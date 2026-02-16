@@ -18,15 +18,15 @@ use std::thread;
 use std::sync::OnceLock;
 use crate::utils::format::safe_truncate;
 
-/// Debug logging helper (only active when COKACDIR_DEBUG=1)
+/// Debug logging helper (only active when OPENDIR_DEBUG=1)
 fn debug_log(msg: &str) {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     let enabled = ENABLED.get_or_init(|| {
-        std::env::var("COKACDIR_DEBUG").map(|v| v == "1").unwrap_or(false)
+        std::env::var("OPENDIR_DEBUG").map(|v| v == "1").unwrap_or(false)
     });
     if !*enabled { return; }
     if let Some(home) = dirs::home_dir() {
-        let debug_dir = home.join(".cokacdir").join("debug");
+        let debug_dir = home.join(".opendir").join("debug");
         let _ = std::fs::create_dir_all(&debug_dir);
         let log_path = debug_dir.join("ai_screen.log");
         if let Ok(mut file) = OpenOptions::new()
@@ -380,9 +380,9 @@ struct SessionData {
     created_at: String,
 }
 
-/// Get the AI sessions directory path (~/.cokacdir/ai_sessions)
+/// Get the AI sessions directory path (~/.opendir/ai_sessions)
 fn ai_sessions_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".cokacdir").join("ai_sessions"))
+    dirs::home_dir().map(|h| h.join(".opendir").join("ai_sessions"))
 }
 
 impl AIScreenState {
@@ -422,7 +422,7 @@ impl AIScreenState {
         session_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     }
 
-    /// Save current session to file (~/.cokacdir/ai_sessions/[session_id].json)
+    /// Save current session to file (~/.opendir/ai_sessions/[session_id].json)
     pub fn save_session_to_file(&self) {
         // Only save if we have a session_id and some history
         let Some(ref session_id) = self.session_id else {
@@ -516,7 +516,7 @@ impl AIScreenState {
         let (session_data, _) = matching_session?;
 
         // Create state with loaded session
-        let claude_available = claude::is_claude_available();
+        let claude_available = claude::is_ai_cli_available();
         let placeholder_index = rand::thread_rng().gen_range(0..PLACEHOLDER_MESSAGES.len());
 
         let mut state = Self {
@@ -559,7 +559,7 @@ impl AIScreenState {
     }
 
     pub fn new(current_path: String) -> Self {
-        let claude_available = claude::is_claude_available();
+        let claude_available = claude::is_ai_cli_available();
         let placeholder_index = rand::thread_rng().gen_range(0..PLACEHOLDER_MESSAGES.len());
         let mut state = Self {
             history: Vec::new(),
@@ -596,7 +596,7 @@ impl AIScreenState {
         } else if !claude_available {
             state.history.push(HistoryItem {
                 item_type: HistoryType::Error,
-                content: "Claude CLI not found. Run 'which claude' to verify installation.".to_string(),
+                content: "Claude/OpenCode CLI not found. Run 'which claude' or 'which opencode' to verify installation.".to_string(),
             });
         }
 
@@ -833,9 +833,9 @@ impl AIScreenState {
             return;
         }
 
-        // Check claude availability before actual API call
+        // Check AI CLI availability before actual API call
         if !self.claude_available {
-            debug_log("submit: Claude not available, returning early");
+            debug_log("submit: AI CLI not available, returning early");
             return;
         }
 
@@ -1429,7 +1429,7 @@ fn draw_input(frame: &mut Frame, state: &AIScreenState, area: Rect, theme: &Them
     } else if !state.claude_available {
         frame.render_widget(
             Paragraph::new(Span::styled(
-                "Claude CLI not available",
+                "Claude/OpenCode CLI not available",
                 Style::default().fg(theme.ai_screen.error_text),
             )),
             inner,
@@ -1659,6 +1659,14 @@ pub fn handle_input(state: &mut AIScreenState, code: KeyCode, modifiers: KeyModi
             }
         }
         KeyCode::Backspace => {
+            state.backspace();
+        }
+        KeyCode::Char('h') if ctrl => {
+            // Some terminals send Backspace as Ctrl+H.
+            state.backspace();
+        }
+        KeyCode::Char('\u{8}') | KeyCode::Char('\u{7f}') => {
+            // Fallback for terminals that emit raw ASCII BS/DEL.
             state.backspace();
         }
         KeyCode::Delete => {
@@ -1953,6 +1961,32 @@ mod tests {
         // Cursor should NOT move, scroll should change
         assert_eq!(state.cursor_line, 1);
         assert_eq!(state.scroll_offset, 29);
+    }
+
+    #[test]
+    fn test_ctrl_h_behaves_like_backspace() {
+        let mut state = create_test_state();
+        state.set_input_text("abc");
+        state.cursor_line = 0;
+        state.cursor_col = 3;
+
+        handle_input(&mut state, KeyCode::Char('h'), KeyModifiers::CONTROL);
+
+        assert_eq!(state.get_input_text(), "ab");
+        assert_eq!(state.cursor_col, 2);
+    }
+
+    #[test]
+    fn test_ascii_del_behaves_like_backspace() {
+        let mut state = create_test_state();
+        state.set_input_text("abc");
+        state.cursor_line = 0;
+        state.cursor_col = 3;
+
+        handle_input(&mut state, KeyCode::Char('\u{7f}'), KeyModifiers::empty());
+
+        assert_eq!(state.get_input_text(), "ab");
+        assert_eq!(state.cursor_col, 2);
     }
 
     #[test]

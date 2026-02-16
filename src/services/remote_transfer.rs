@@ -218,7 +218,7 @@ fn build_remote_spec(profile: &RemoteProfile, path: &str) -> String {
 fn create_askpass_script(password: &str) -> Result<PathBuf, String> {
     let tmp_dir = dirs::home_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join(".cokacdir")
+        .join(".opendir")
         .join("tmp");
     std::fs::create_dir_all(&tmp_dir)
         .map_err(|e| format!("Failed to create tmp dir: {}", e))?;
@@ -696,14 +696,14 @@ pub fn transfer_remote_to_remote_with_progress(
         return;
     }
 
-    // Create temp directory under ~/.cokacdir/tmp/
+    // Create temp directory under ~/.opendir/tmp/
     let temp_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
     let base_tmp = dirs::home_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join(".cokacdir")
+        .join(".opendir")
         .join("tmp");
     let temp_dir = base_tmp.join(format!("r2r_{}", temp_id));
     if let Err(e) = std::fs::create_dir_all(&temp_dir) {
