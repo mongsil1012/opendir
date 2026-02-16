@@ -195,6 +195,8 @@ pub enum DialogType {
     RemoteConnect,
     /// Remote profile save prompt - ask to save after successful connect
     RemoteProfileSave,
+    EncryptConfirm,
+    DecryptConfirm,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -824,6 +826,8 @@ pub struct Dialog {
 #[derive(Debug, Clone)]
 pub struct FileItem {
     pub name: String,
+    /// Original filename read from .cokacenc header (plaintext, no decryption needed)
+    pub display_name: Option<String>,
     pub is_directory: bool,
     pub is_symlink: bool,
     pub size: u64,
@@ -1041,6 +1045,7 @@ impl PanelState {
         if self.path.parent().is_some() {
             self.files.push(FileItem {
                 name: "..".to_string(),
+                display_name: None,
                 is_directory: true,
                 is_symlink: false,
                 size: 0,
@@ -1084,8 +1089,20 @@ impl PanelState {
                     #[cfg(not(unix))]
                     let permissions = String::new();
 
+                    let display_name = if !is_directory && name.ends_with(crate::enc::naming::EXT) {
+                        std::fs::File::open(&path).ok()
+                            .and_then(|f| {
+                                let mut reader = std::io::BufReader::new(f);
+                                crate::enc::crypto::read_header(&mut reader).ok()
+                            })
+                            .map(|(_, _, hdr_name)| hdr_name)
+                    } else {
+                        None
+                    };
+
                     Some(FileItem {
                         name,
+                        display_name,
                         is_directory,
                         is_symlink,
                         size,
@@ -1112,6 +1129,7 @@ impl PanelState {
         if remote_path != "/" {
             self.files.push(FileItem {
                 name: "..".to_string(),
+                display_name: None,
                 is_directory: true,
                 is_symlink: false,
                 size: 0,
@@ -1132,6 +1150,7 @@ impl PanelState {
                     .into_iter()
                     .map(|entry| FileItem {
                         name: entry.name,
+                        display_name: None,
                         is_directory: entry.is_directory,
                         is_symlink: entry.is_symlink,
                         size: if entry.is_directory { 0 } else { entry.size },
@@ -1172,6 +1191,7 @@ impl PanelState {
         if remote_path != "/" {
             self.files.push(FileItem {
                 name: "..".to_string(),
+                display_name: None,
                 is_directory: true,
                 is_symlink: false,
                 size: 0,
@@ -1184,6 +1204,7 @@ impl PanelState {
             .into_iter()
             .map(|entry| FileItem {
                 name: entry.name,
+                display_name: None,
                 is_directory: entry.is_directory,
                 is_symlink: entry.is_symlink,
                 size: if entry.is_directory { 0 } else { entry.size },
@@ -1309,6 +1330,7 @@ impl PanelState {
             if remote_path != "/" {
                 self.files.push(FileItem {
                     name: "..".to_string(),
+                    display_name: None,
                     is_directory: true,
                     is_symlink: false,
                     size: 0,
@@ -3251,6 +3273,142 @@ impl App {
             message: format!("Delete {}?", file_list),
             completion: None,
             selected_button: 1,  // 기본값: No (안전을 위해)
+            selection: None,
+        });
+    }
+
+    pub fn show_encrypt_dialog(&mut self) {
+        if self.active_panel().is_remote() {
+            self.show_message("Encryption is not available on remote panels");
+            return;
+        }
+
+        let dir = self.active_panel().path.clone();
+        let count = match fs::read_dir(&dir) {
+            Ok(rd) => rd.filter_map(|e| e.ok())
+                .filter(|e| {
+                    let path = e.path();
+                    if !path.is_file() { return false; }
+                    let name = e.file_name().to_string_lossy().to_string();
+                    !name.ends_with(".cokacenc") && !name.starts_with('.')
+                })
+                .count(),
+            Err(_) => 0,
+        };
+
+        if count == 0 {
+            self.show_message("No files to encrypt");
+            return;
+        }
+
+        self.dialog = Some(Dialog {
+            dialog_type: DialogType::EncryptConfirm,
+            input: String::new(),
+            cursor_pos: 0,
+            message: format!("Encrypt {} file(s) in {}?", count, dir.display()),
+            completion: None,
+            selected_button: 1,  // Default: No
+            selection: None,
+        });
+    }
+
+    pub fn show_decrypt_dialog(&mut self) {
+        if self.active_panel().is_remote() {
+            self.show_message("Decryption is not available on remote panels");
+            return;
+        }
+
+        let dir = self.active_panel().path.clone();
+        let count = match fs::read_dir(&dir) {
+            Ok(rd) => rd.filter_map(|e| e.ok())
+                .filter(|e| {
+                    let path = e.path();
+                    path.is_file() && e.file_name().to_string_lossy().ends_with(".cokacenc")
+                })
+                .count(),
+            Err(_) => 0,
+        };
+
+        if count == 0 {
+            self.show_message("No .cokacenc files to decrypt");
+            return;
+        }
+
+        self.dialog = Some(Dialog {
+            dialog_type: DialogType::DecryptConfirm,
+            input: String::new(),
+            cursor_pos: 0,
+            message: format!("Decrypt {} .cokacenc file(s) in {}?", count, dir.display()),
+            completion: None,
+            selected_button: 1,  // Default: No
+            selection: None,
+        });
+    }
+
+    pub fn execute_encrypt(&mut self) {
+        let key_path = match crate::enc::ensure_key() {
+            Ok(p) => p,
+            Err(e) => {
+                self.show_message(&format!("Key error: {}", e));
+                return;
+            }
+        };
+
+        let dir = self.active_panel().path.clone();
+
+        let mut progress = FileOperationProgress::new(FileOperationType::Encrypt);
+        progress.is_active = true;
+        let cancel_flag = progress.cancel_flag.clone();
+
+        let (tx, rx) = mpsc::channel();
+        progress.receiver = Some(rx);
+
+        thread::spawn(move || {
+            crate::enc::pack_directory_with_progress(&dir, &key_path, tx, cancel_flag);
+        });
+
+        self.file_operation_progress = Some(progress);
+        self.dialog = Some(Dialog {
+            dialog_type: DialogType::Progress,
+            input: String::new(),
+            cursor_pos: 0,
+            message: String::new(),
+            completion: None,
+            selected_button: 0,
+            selection: None,
+        });
+    }
+
+    pub fn execute_decrypt(&mut self) {
+        let key_path = match crate::enc::ensure_key() {
+            Ok(p) => p,
+            Err(e) => {
+                self.show_message(&format!("Key error: {}", e));
+                return;
+            }
+        };
+
+        let dir = self.active_panel().path.clone();
+
+        let mut progress = FileOperationProgress::new(FileOperationType::Decrypt);
+        progress.is_active = true;
+        let cancel_flag = progress.cancel_flag.clone();
+
+        let (tx, rx) = mpsc::channel();
+        progress.receiver = Some(rx);
+
+        thread::spawn(move || {
+            crate::enc::unpack_directory_with_progress(&dir, &key_path, tx, cancel_flag);
+        });
+
+        self.file_operation_progress = Some(progress);
+        self.dialog = Some(Dialog {
+            dialog_type: DialogType::Progress,
+            input: String::new(),
+            cursor_pos: 0,
+            message: String::new(),
+            completion: None,
+            selected_button: 0,
             selection: None,
         });
     }
