@@ -350,6 +350,7 @@ pub struct AIScreenState {
     pub scroll_offset: usize,
     pub auto_scroll: bool,  // 자동 스크롤 활성화 여부
     pub claude_available: bool,
+    pub ai_fullscreen: bool,
     pub current_path: String,
     pub placeholder_index: usize,
     /// Channel receiver for streaming Claude responses
@@ -528,6 +529,7 @@ impl AIScreenState {
             is_processing: false,
             scroll_offset: usize::MAX,  // Sentinel: scroll to bottom on first draw
             auto_scroll: true,
+            ai_fullscreen: false,
             claude_available,
             current_path,  // Use current path, not session's stored path
             placeholder_index,
@@ -570,6 +572,7 @@ impl AIScreenState {
             is_processing: false,
             scroll_offset: 0,
             auto_scroll: true,
+            ai_fullscreen: false,
             claude_available,
             current_path,
             placeholder_index,
@@ -1631,7 +1634,12 @@ pub fn handle_paste(state: &mut AIScreenState, text: &str) {
     }
 }
 
-pub fn handle_input(state: &mut AIScreenState, code: KeyCode, modifiers: KeyModifiers) -> bool {
+pub fn handle_input(
+    state: &mut AIScreenState,
+    code: KeyCode,
+    modifiers: KeyModifiers,
+    _keybindings: &crate::keybindings::Keybindings,
+) -> bool {
     let ctrl = modifiers.contains(KeyModifiers::CONTROL);
     let shift = modifiers.contains(KeyModifiers::SHIFT);
     let alt = modifiers.contains(KeyModifiers::ALT);
@@ -1782,6 +1790,10 @@ pub fn handle_input(state: &mut AIScreenState, code: KeyCode, modifiers: KeyModi
 mod tests {
     use super::*;
 
+    fn default_keybindings() -> crate::keybindings::Keybindings {
+        crate::keybindings::Keybindings::from_config(&crate::keybindings::KeybindingsConfig::default())
+    }
+
     fn create_test_state() -> AIScreenState {
         let mut state = AIScreenState::new("/test".to_string());
         // Clear any system messages
@@ -1880,7 +1892,12 @@ mod tests {
         state.last_visible_height = 20;
 
         // PageUp should scroll by visible_height - 1 = 19
-        handle_input(&mut state, KeyCode::PageUp, KeyModifiers::empty());
+        handle_input(
+            &mut state,
+            KeyCode::PageUp,
+            KeyModifiers::empty(),
+            &default_keybindings(),
+        );
 
         assert_eq!(state.scroll_offset, 21);  // 40 - 19 = 21
     }
@@ -1893,7 +1910,12 @@ mod tests {
         state.last_visible_height = 20;
 
         // PageDown should scroll by visible_height - 1 = 19
-        handle_input(&mut state, KeyCode::PageDown, KeyModifiers::empty());
+        handle_input(
+            &mut state,
+            KeyCode::PageDown,
+            KeyModifiers::empty(),
+            &default_keybindings(),
+        );
 
         assert_eq!(state.scroll_offset, 29);  // 10 + 19 = 29
     }
@@ -1904,7 +1926,12 @@ mod tests {
         state.scroll_offset = 30;
         state.auto_scroll = true;
 
-        handle_input(&mut state, KeyCode::Home, KeyModifiers::CONTROL);
+        handle_input(
+            &mut state,
+            KeyCode::Home,
+            KeyModifiers::CONTROL,
+            &default_keybindings(),
+        );
 
         assert_eq!(state.scroll_offset, 0);
         assert!(!state.auto_scroll);
@@ -1916,7 +1943,12 @@ mod tests {
         state.scroll_offset = 10;
         state.auto_scroll = false;
 
-        handle_input(&mut state, KeyCode::End, KeyModifiers::CONTROL);
+        handle_input(
+            &mut state,
+            KeyCode::End,
+            KeyModifiers::CONTROL,
+            &default_keybindings(),
+        );
 
         assert_eq!(state.scroll_offset, 50);  // last_max_scroll
         assert!(state.auto_scroll);
@@ -1929,7 +1961,12 @@ mod tests {
         state.scroll_offset = 30;
         state.auto_scroll = false;
 
-        handle_input(&mut state, KeyCode::Up, KeyModifiers::empty());
+        handle_input(
+            &mut state,
+            KeyCode::Up,
+            KeyModifiers::empty(),
+            &default_keybindings(),
+        );
 
         assert_eq!(state.scroll_offset, 29);
     }
@@ -1942,7 +1979,12 @@ mod tests {
         state.cursor_col = 2;
         state.scroll_offset = 30;
 
-        handle_input(&mut state, KeyCode::Up, KeyModifiers::empty());
+        handle_input(
+            &mut state,
+            KeyCode::Up,
+            KeyModifiers::empty(),
+            &default_keybindings(),
+        );
 
         // Cursor should move up, scroll should stay same
         assert_eq!(state.cursor_line, 0);
@@ -1956,7 +1998,12 @@ mod tests {
         state.cursor_line = 1;
         state.scroll_offset = 30;
 
-        handle_input(&mut state, KeyCode::Up, KeyModifiers::CONTROL);
+        handle_input(
+            &mut state,
+            KeyCode::Up,
+            KeyModifiers::CONTROL,
+            &default_keybindings(),
+        );
 
         // Cursor should NOT move, scroll should change
         assert_eq!(state.cursor_line, 1);
@@ -1970,7 +2017,12 @@ mod tests {
         state.cursor_line = 0;
         state.cursor_col = 3;
 
-        handle_input(&mut state, KeyCode::Char('h'), KeyModifiers::CONTROL);
+        handle_input(
+            &mut state,
+            KeyCode::Char('h'),
+            KeyModifiers::CONTROL,
+            &default_keybindings(),
+        );
 
         assert_eq!(state.get_input_text(), "ab");
         assert_eq!(state.cursor_col, 2);
@@ -1983,7 +2035,12 @@ mod tests {
         state.cursor_line = 0;
         state.cursor_col = 3;
 
-        handle_input(&mut state, KeyCode::Char('\u{7f}'), KeyModifiers::empty());
+        handle_input(
+            &mut state,
+            KeyCode::Char('\u{7f}'),
+            KeyModifiers::empty(),
+            &default_keybindings(),
+        );
 
         assert_eq!(state.get_input_text(), "ab");
         assert_eq!(state.cursor_col, 2);
