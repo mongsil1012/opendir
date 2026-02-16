@@ -368,11 +368,11 @@ fn build_help_content(theme: &Theme) -> Vec<Line<'static>> {
     lines.push(key_line("Esc", "Cancel"));
     lines.push(Line::from(vec![
         Span::styled("  ".to_string(), desc_style),
-        Span::styled("Config: ~/.cokacdir/settings.json".to_string(), hint_style),
+        Span::styled("Config: ~/.opendir/settings.json".to_string(), hint_style),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  ".to_string(), desc_style),
-        Span::styled("Themes: ~/.cokacdir/themes/".to_string(), hint_style),
+        Span::styled("Themes: ~/.opendir/themes/".to_string(), hint_style),
     ]));
     lines.push(Line::from(""));
 
@@ -450,7 +450,7 @@ fn build_help_content(theme: &Theme) -> Vec<Line<'static>> {
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Website          ", key_style),
-        Span::styled("https://cokacdir.cokac.com", desc_style),
+        Span::styled("https://opendir.cokac.com", desc_style),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  YouTube          ", key_style),

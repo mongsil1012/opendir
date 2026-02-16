@@ -960,12 +960,12 @@ fn default_234() -> u8 { 234 }
 // 테마 로딩 함수
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// 테마 디렉토리 경로 (~/.cokacdir/themes)
+/// 테마 디렉토리 경로 (~/.opendir/themes)
 pub fn themes_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".cokacdir").join("themes"))
+    dirs::home_dir().map(|h| h.join(".opendir").join("themes"))
 }
 
-/// 테마 파일 경로 (~/.cokacdir/themes/{name}.json)
+/// 테마 파일 경로 (~/.opendir/themes/{name}.json)
 /// Security: Validates theme name to prevent path traversal attacks
 pub fn theme_path(name: &str) -> Option<PathBuf> {
     // Prevent path traversal attacks

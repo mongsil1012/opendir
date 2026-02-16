@@ -691,7 +691,7 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// Load theme by name from ~/.cokacdir/themes/{name}.json
+    /// Load theme by name from ~/.opendir/themes/{name}.json
     /// Falls back to built-in theme if file not found
     pub fn load(name: &str) -> Self {
         // Try to load from JSON file first

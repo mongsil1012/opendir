@@ -196,10 +196,65 @@ pub enum DialogType {
     RemoteProfileSave,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextMenuAction {
+    Open,
+    Copy,
+    Cut,
+    Paste,
+    Rename,
+    Delete,
+    NewDirectory,
+    NewFile,
+    Refresh,
+    Cancel,
+}
+
+impl ContextMenuAction {
+    pub fn all() -> &'static [ContextMenuAction] {
+        &[
+            ContextMenuAction::Open,
+            ContextMenuAction::Copy,
+            ContextMenuAction::Cut,
+            ContextMenuAction::Paste,
+            ContextMenuAction::Rename,
+            ContextMenuAction::Delete,
+            ContextMenuAction::NewDirectory,
+            ContextMenuAction::NewFile,
+            ContextMenuAction::Refresh,
+            ContextMenuAction::Cancel,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ContextMenuAction::Open => "Open",
+            ContextMenuAction::Copy => "Copy",
+            ContextMenuAction::Cut => "Cut",
+            ContextMenuAction::Paste => "Paste",
+            ContextMenuAction::Rename => "Rename",
+            ContextMenuAction::Delete => "Delete",
+            ContextMenuAction::NewDirectory => "New Folder",
+            ContextMenuAction::NewFile => "New File",
+            ContextMenuAction::Refresh => "Refresh",
+            ContextMenuAction::Cancel => "Cancel",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ContextMenuState {
+    pub panel_index: usize,
+    pub file_index: Option<usize>,
+    pub x: u16,
+    pub y: u16,
+    pub selected_index: usize,
+}
+
 /// Settings dialog state
 #[derive(Debug, Clone)]
 pub struct SettingsState {
-    /// Available theme names (from ~/.cokacdir/themes/)
+    /// Available theme names (from ~/.opendir/themes/)
     pub themes: Vec<String>,
     /// Currently selected theme index
     pub theme_index: usize,
@@ -1275,6 +1330,7 @@ pub struct App {
     pub active_panel_index: usize,
     pub current_screen: Screen,
     pub dialog: Option<Dialog>,
+    pub context_menu: Option<ContextMenuState>,
     pub message: Option<String>,
     pub message_timer: u8,
 
@@ -1425,6 +1481,7 @@ impl App {
             active_panel_index: 0,
             current_screen: Screen::FilePanel,
             dialog: None,
+            context_menu: None,
             message: None,
             message_timer: 0,
             needs_full_redraw: false,
@@ -1521,6 +1578,7 @@ impl App {
             active_panel_index,
             current_screen: Screen::FilePanel,
             dialog: None,
+            context_menu: None,
             message: None,
             message_timer: 0,
             needs_full_redraw: false,
@@ -1741,6 +1799,72 @@ impl App {
     pub fn target_panel(&self) -> &PanelState {
         let target_idx = (self.active_panel_index + 1) % self.panels.len();
         &self.panels[target_idx]
+    }
+
+    pub fn set_active_panel_index(&mut self, panel_index: usize) {
+        if panel_index >= self.panels.len() || panel_index == self.active_panel_index {
+            return;
+        }
+        self.panels[self.active_panel_index].selected_files.clear();
+        self.active_panel_index = panel_index;
+    }
+
+    pub fn focus_panel_item(&mut self, panel_index: usize, file_index: Option<usize>, clear_marks: bool) {
+        self.set_active_panel_index(panel_index);
+        if let Some(idx) = file_index {
+            let panel = &mut self.panels[self.active_panel_index];
+            if idx < panel.files.len() {
+                if clear_marks {
+                    panel.selected_files.clear();
+                }
+                panel.selected_index = idx;
+            }
+        }
+    }
+
+    pub fn open_context_menu(&mut self, panel_index: usize, file_index: Option<usize>, x: u16, y: u16) {
+        self.context_menu = Some(ContextMenuState {
+            panel_index,
+            file_index,
+            x,
+            y,
+            selected_index: 0,
+        });
+    }
+
+    pub fn close_context_menu(&mut self) {
+        self.context_menu = None;
+    }
+
+    pub fn context_menu_actions(&self) -> &'static [ContextMenuAction] {
+        ContextMenuAction::all()
+    }
+
+    pub fn context_menu_dimensions(&self) -> (u16, u16) {
+        let width = self.context_menu_actions()
+            .iter()
+            .map(|a| a.label().len() as u16)
+            .max()
+            .unwrap_or(1)
+            .saturating_add(4);
+        let height = self.context_menu_actions().len() as u16 + 2;
+        (width, height)
+    }
+
+    pub fn execute_context_menu_action(&mut self, action: ContextMenuAction) {
+        self.context_menu = None;
+        match action {
+            ContextMenuAction::Open => self.enter_selected(),
+            ContextMenuAction::Copy => self.clipboard_copy(),
+            ContextMenuAction::Cut => self.clipboard_cut(),
+            ContextMenuAction::Paste => self.clipboard_paste(),
+            ContextMenuAction::Rename => self.show_rename_dialog(),
+            ContextMenuAction::Delete => self.show_delete_dialog(),
+            ContextMenuAction::NewDirectory => self.show_mkdir_dialog(),
+            ContextMenuAction::NewFile => self.show_mkfile_dialog(),
+            ContextMenuAction::Refresh => self.refresh_panels(),
+            ContextMenuAction::Cancel => {}
+        }
     }
 
     pub fn switch_panel(&mut self) {
@@ -2137,7 +2261,7 @@ impl App {
     /// Handler prefix:
     /// - No prefix: Foreground execution (suspends TUI, runs command, waits for exit, restores TUI)
     ///   Example: "vim {{FILEPATH}}" - hands over terminal, blocks until program exits
-    /// - @ prefix: Background execution (spawns detached, returns to cokacdir immediately)
+    /// - @ prefix: Background execution (spawns detached, returns to opendir immediately)
     ///   Example: "@evince {{FILEPATH}}" - does not wait for program to finish
     pub fn try_extension_handler(&mut self, path: &std::path::Path) -> Result<bool, String> {
         // Get file extension
@@ -2235,7 +2359,7 @@ impl App {
         let encoded = encode_command_base64(command);
         let exe_path = std::env::current_exe()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "cokacdir".to_string());
+            .unwrap_or_else(|_| "opendir".to_string());
         let wrapped_command = format!("eval \"$('{}' --base64 '{}')\"", exe_path, encoded);
 
         let result = std::process::Command::new("bash")
@@ -2266,7 +2390,7 @@ impl App {
         let encoded = encode_command_base64(command);
         let exe_path = std::env::current_exe()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "cokacdir".to_string());
+            .unwrap_or_else(|_| "opendir".to_string());
         let wrapped_command = format!("eval \"$('{}' --base64 '{}')\"", exe_path, encoded);
 
         let result = std::process::Command::new("bash")
@@ -2880,7 +3004,7 @@ impl App {
         if let Some(ref ctx) = panel.remote_ctx {
             let tmp_base = dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join(".cokacdir").join("tmp")
+                .join(".opendir").join("tmp")
                 .join(format!("{}@{}", ctx.profile.user, ctx.profile.host));
             Some(tmp_base.join(remote_path.trim_start_matches('/')))
         } else {
@@ -2897,7 +3021,7 @@ impl App {
         let (profile, tmp_path) = if let Some(ref ctx) = panel.remote_ctx {
             let tmp_base = dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join(".cokacdir").join("tmp")
+                .join(".opendir").join("tmp")
                 .join(format!("{}@{}", ctx.profile.user, ctx.profile.host));
             let tmp_path = tmp_base.join(remote_path.trim_start_matches('/'));
             (ctx.profile.clone(), tmp_path)
@@ -3371,7 +3495,7 @@ impl App {
         thread::spawn(move || {
             let diff_base = dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join(".cokacdir")
+                .join(".opendir")
                 .join("diff");
 
             let _ = std::fs::remove_dir_all(&diff_base);
@@ -6248,7 +6372,7 @@ mod tests {
     fn create_temp_dir() -> PathBuf {
         let unique_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_dir = std::env::temp_dir().join(format!(
-            "cokacdir_app_test_{}_{}",
+            "opendir_app_test_{}_{}",
             std::process::id(),
             unique_id
         ));

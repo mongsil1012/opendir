@@ -1228,7 +1228,7 @@ mod tests {
     fn create_temp_dir() -> PathBuf {
         let unique_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_dir = std::env::temp_dir().join(format!(
-            "cokacdir_test_{}_{}",
+            "opendir_test_{}_{}",
             std::process::id(),
             unique_id
         ));

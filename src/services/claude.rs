@@ -12,6 +12,37 @@ enum AiCli {
     OpenCode,
 }
 
+const AI_SYSTEM_PROMPT: &str = r#"You are a terminal file manager assistant. Be concise. Focus on file operations. Respond in the same language as the user.
+
+SECURITY RULES (MUST FOLLOW):
+- NEVER execute destructive commands like rm -rf, format, mkfs, dd, etc.
+- NEVER modify system files in /etc, /sys, /proc, /boot
+- NEVER access or modify files outside the current working directory without explicit user path
+- NEVER execute commands that could harm the system or compromise security
+- ONLY suggest safe file operations: copy, move, rename, create directory, view, edit
+- If a request seems dangerous, explain the risk and suggest a safer alternative
+
+BASH EXECUTION RULES (MUST FOLLOW):
+- All commands MUST run non-interactively without user input
+- Use -y, --yes, or --non-interactive flags (e.g., apt install -y, npm init -y)
+- Use -m flag for commit messages (e.g., git commit -m "message")
+- Disable pagers with --no-pager or pipe to cat (e.g., git --no-pager log)
+- NEVER use commands that open editors (vim, nano, etc.)
+- NEVER use commands that wait for stdin without arguments
+- NEVER use interactive flags like -i
+
+IMPORTANT: Format your responses using Markdown for better readability:
+- Use **bold** for important terms or commands
+- Use `code` for file paths, commands, and technical terms
+- Use bullet lists (- item) for multiple items
+- Use numbered lists (1. item) for sequential steps
+- Use code blocks (```language) for multi-line code or command examples
+- Use headers (## Title) to organize longer responses
+- Keep formatting minimal and terminal-friendly"#;
+
+const OPENCODE_AGENT_NAME: &str = "opendir-file-manager";
+const OPENCODE_PERMISSION_CONFIG: &str = r#"{"*":"allow"}"#;
+
 fn preferred_ai_cli() -> Option<AiCli> {
     if is_claude_available() {
         Some(AiCli::Claude)
@@ -22,15 +53,15 @@ fn preferred_ai_cli() -> Option<AiCli> {
     }
 }
 
-/// Debug logging helper (only active when COKACDIR_DEBUG=1)
+/// Debug logging helper (only active when OPENDIR_DEBUG=1)
 fn debug_log(msg: &str) {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     let enabled = ENABLED.get_or_init(|| {
-        std::env::var("COKACDIR_DEBUG").map(|v| v == "1").unwrap_or(false)
+        std::env::var("OPENDIR_DEBUG").map(|v| v == "1").unwrap_or(false)
     });
     if !*enabled { return; }
     if let Some(home) = dirs::home_dir() {
-        let debug_dir = home.join(".cokacdir").join("debug");
+        let debug_dir = home.join(".opendir").join("debug");
         let _ = std::fs::create_dir_all(&debug_dir);
         let log_path = debug_dir.join("claude.log");
         if let Ok(mut file) = OpenOptions::new()
@@ -40,6 +71,33 @@ fn debug_log(msg: &str) {
         {
             let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
             let _ = writeln!(file, "[{}] {}", timestamp, msg);
+        }
+    }
+}
+
+fn opencode_config_content() -> String {
+    serde_json::json!({
+        "agent": {
+            OPENCODE_AGENT_NAME: {
+                "prompt": AI_SYSTEM_PROMPT
+            }
+        },
+        "default_agent": OPENCODE_AGENT_NAME
+    }).to_string()
+}
+
+fn apply_ai_cli_env(command: &mut Command, ai_cli: AiCli) {
+    match ai_cli {
+        AiCli::Claude => {
+            command
+                .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
+                .env("BASH_DEFAULT_TIMEOUT_MS", "86400000")  // 24 hours (no practical timeout)
+                .env("BASH_MAX_TIMEOUT_MS", "86400000");     // 24 hours (no practical timeout)
+        }
+        AiCli::OpenCode => {
+            command
+                .env("OPENCODE_PERMISSION", OPENCODE_PERMISSION_CONFIG)
+                .env("OPENCODE_CONFIG_CONTENT", opencode_config_content());
         }
     }
 }
@@ -105,39 +163,15 @@ pub fn execute_command(
             "--output-format".to_string(),
             "json".to_string(),
             "--append-system-prompt".to_string(),
-            r#"You are a terminal file manager assistant. Be concise. Focus on file operations. Respond in the same language as the user.
-
-SECURITY RULES (MUST FOLLOW):
-- NEVER execute destructive commands like rm -rf, format, mkfs, dd, etc.
-- NEVER modify system files in /etc, /sys, /proc, /boot
-- NEVER access or modify files outside the current working directory without explicit user path
-- NEVER execute commands that could harm the system or compromise security
-- ONLY suggest safe file operations: copy, move, rename, create directory, view, edit
-- If a request seems dangerous, explain the risk and suggest a safer alternative
-
-BASH EXECUTION RULES (MUST FOLLOW):
-- All commands MUST run non-interactively without user input
-- Use -y, --yes, or --non-interactive flags (e.g., apt install -y, npm init -y)
-- Use -m flag for commit messages (e.g., git commit -m "message")
-- Disable pagers with --no-pager or pipe to cat (e.g., git --no-pager log)
-- NEVER use commands that open editors (vim, nano, etc.)
-- NEVER use commands that wait for stdin without arguments
-- NEVER use interactive flags like -i
-
-IMPORTANT: Format your responses using Markdown for better readability:
-- Use **bold** for important terms or commands
-- Use `code` for file paths, commands, and technical terms
-- Use bullet lists (- item) for multiple items
-- Use numbered lists (1. item) for sequential steps
-- Use code blocks (```language) for multi-line code or command examples
-- Use headers (## Title) to organize longer responses
-- Keep formatting minimal and terminal-friendly"#.to_string(),
+            AI_SYSTEM_PROMPT.to_string(),
         ])
     } else {
         ("opencode", vec![
             "run".to_string(),
             "--format".to_string(),
             "json".to_string(),
+            "--agent".to_string(),
+            OPENCODE_AGENT_NAME.to_string(),
         ])
     };
 
@@ -162,12 +196,7 @@ IMPORTANT: Format your responses using Markdown for better readability:
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if ai_cli == AiCli::Claude {
-        command
-            .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
-            .env("BASH_DEFAULT_TIMEOUT_MS", "86400000")  // 24 hours (no practical timeout)
-            .env("BASH_MAX_TIMEOUT_MS", "86400000");     // 24 hours (no practical timeout)
-    }
+    apply_ai_cli_env(&mut command, ai_cli);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -334,39 +363,15 @@ pub fn execute_command_streaming(
             "--output-format".to_string(),
             "stream-json".to_string(),
             "--append-system-prompt".to_string(),
-            r#"You are a terminal file manager assistant. Be concise. Focus on file operations. Respond in the same language as the user.
-
-SECURITY RULES (MUST FOLLOW):
-- NEVER execute destructive commands like rm -rf, format, mkfs, dd, etc.
-- NEVER modify system files in /etc, /sys, /proc, /boot
-- NEVER access or modify files outside the current working directory without explicit user path
-- NEVER execute commands that could harm the system or compromise security
-- ONLY suggest safe file operations: copy, move, rename, create directory, view, edit
-- If a request seems dangerous, explain the risk and suggest a safer alternative
-
-BASH EXECUTION RULES (MUST FOLLOW):
-- All commands MUST run non-interactively without user input
-- Use -y, --yes, or --non-interactive flags (e.g., apt install -y, npm init -y)
-- Use -m flag for commit messages (e.g., git commit -m "message")
-- Disable pagers with --no-pager or pipe to cat (e.g., git --no-pager log)
-- NEVER use commands that open editors (vim, nano, etc.)
-- NEVER use commands that wait for stdin without arguments
-- NEVER use interactive flags like -i
-
-IMPORTANT: Format your responses using Markdown for better readability:
-- Use **bold** for important terms or commands
-- Use `code` for file paths, commands, and technical terms
-- Use bullet lists (- item) for multiple items
-- Use numbered lists (1. item) for sequential steps
-- Use code blocks (```language) for multi-line code or command examples
-- Use headers (## Title) to organize longer responses
-- Keep formatting minimal and terminal-friendly"#.to_string(),
+            AI_SYSTEM_PROMPT.to_string(),
         ])
     } else {
         ("opencode", vec![
             "run".to_string(),
             "--format".to_string(),
             "json".to_string(),
+            "--agent".to_string(),
+            OPENCODE_AGENT_NAME.to_string(),
         ])
     };
 
@@ -394,6 +399,9 @@ IMPORTANT: Format your responses using Markdown for better readability:
         debug_log("Env: CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000");
         debug_log("Env: BASH_DEFAULT_TIMEOUT_MS=86400000");
         debug_log("Env: BASH_MAX_TIMEOUT_MS=86400000");
+    } else {
+        debug_log(&format!("Env: OPENCODE_PERMISSION={}", OPENCODE_PERMISSION_CONFIG));
+        debug_log("Env: OPENCODE_CONFIG_CONTENT=<inline config with opendir-file-manager agent>");
     }
 
     let spawn_start = std::time::Instant::now();
@@ -404,12 +412,7 @@ IMPORTANT: Format your responses using Markdown for better readability:
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if ai_cli == AiCli::Claude {
-        command
-            .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
-            .env("BASH_DEFAULT_TIMEOUT_MS", "86400000")  // 24 hours (no practical timeout)
-            .env("BASH_MAX_TIMEOUT_MS", "86400000");     // 24 hours (no practical timeout)
-    }
+    apply_ai_cli_env(&mut command, ai_cli);
     let mut child = command.spawn()
         .map_err(|e| {
             debug_log(&format!("ERROR: Failed to spawn after {:?}: {}", spawn_start.elapsed(), e));
@@ -442,6 +445,7 @@ IMPORTANT: Format your responses using Markdown for better readability:
     let mut last_session_id: Option<String> = None;
     let mut final_result: Option<String> = None;
     let mut line_count = 0;
+    let mut should_retry_without_session = false;
 
     debug_log("Entering lines loop - will block until first line arrives...");
     for line in reader.lines() {
@@ -491,6 +495,7 @@ IMPORTANT: Format your responses using Markdown for better readability:
                 debug_log(&format!("  Parsed message variant: {:?}", std::mem::discriminant(&msg)));
 
                 // Track session_id and final result for Done message
+                let mut suppress_message = false;
                 match &msg {
                     StreamMessage::Init { session_id } => {
                         debug_log(&format!("  >>> Init: session_id={}", session_id));
@@ -520,10 +525,24 @@ IMPORTANT: Format your responses using Markdown for better readability:
                     }
                     StreamMessage::Error { message } => {
                         debug_log(&format!("  >>> Error: {}", message));
+                        // OpenCode can fail to resume old sessions if the original model no longer exists.
+                        // In this case, transparently retry once without session ID.
+                        if ai_cli == AiCli::OpenCode
+                            && session_id.is_some()
+                            && is_model_not_found_error(message)
+                        {
+                            debug_log("  >>> OpenCode resume failed due to missing model; scheduling retry without session");
+                            should_retry_without_session = true;
+                            suppress_message = true;
+                        }
                     }
                     StreamMessage::TaskNotification { task_id, status, summary } => {
                         debug_log(&format!("  >>> TaskNotification: task_id={}, status={}, summary={}", task_id, status, summary));
                     }
+                }
+
+                if suppress_message {
+                    continue;
                 }
 
                 // Send message to channel
@@ -558,6 +577,11 @@ IMPORTANT: Format your responses using Markdown for better readability:
     debug_log(&format!("Process finished in {:?}, status: {:?}, exit_code: {:?}",
         wait_start.elapsed(), status, status.code()));
 
+    if should_retry_without_session {
+        debug_log("Retrying OpenCode request without session ID due to missing model");
+        return execute_command_streaming(prompt, None, working_dir, sender);
+    }
+
     // If we didn't get a proper Done message, send one now
     if final_result.is_none() {
         debug_log("No Done message received, sending synthetic Done message...");
@@ -579,6 +603,13 @@ IMPORTANT: Format your responses using Markdown for better readability:
     debug_log("=== execute_command_streaming END (success) ===");
     debug_log("========================================");
     Ok(())
+}
+
+fn is_model_not_found_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("model not found")
+        || lower.contains("unknown model")
+        || lower.contains("invalid model")
 }
 
 /// Parse a stream-json line into a StreamMessage
@@ -695,19 +726,43 @@ fn parse_stream_message(json: &Value) -> Option<StreamMessage> {
             Some(StreamMessage::ToolUse { name, input })
         }
         "error" => {
-            let message = json.get("error")
-                .and_then(|v| {
-                    if let Some(s) = v.as_str() {
-                        Some(s.to_string())
-                    } else {
-                        v.get("message").and_then(|m| m.as_str()).map(String::from)
-                    }
-                })
+            let message = extract_stream_error_message(json)
                 .unwrap_or_else(|| "Unknown error".to_string());
             Some(StreamMessage::Error { message })
         }
         _ => None
     }
+}
+
+fn extract_stream_error_message(json: &Value) -> Option<String> {
+    if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
+        return Some(message.to_string());
+    }
+
+    let error = json.get("error")?;
+
+    if let Some(message) = error.as_str() {
+        return Some(message.to_string());
+    }
+
+    if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
+        return Some(message.to_string());
+    }
+
+    // OpenCode format: {"type":"error","error":{"name":"UnknownError","data":{"message":"..."}}}
+    if let Some(message) = error
+        .get("data")
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(message.to_string());
+    }
+
+    if let Some(name) = error.get("name").and_then(|v| v.as_str()) {
+        return Some(name.to_string());
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -760,6 +815,30 @@ mod tests {
         assert!(!is_valid_session_id("세션아이디"));
         assert!(!is_valid_session_id("session_日本語"));
         assert!(!is_valid_session_id("émoji🎉"));
+    }
+
+    #[test]
+    fn test_opencode_config_content_uses_shared_system_prompt() {
+        let parsed: Value = serde_json::from_str(&opencode_config_content()).unwrap();
+
+        assert_eq!(
+            parsed.get("default_agent").and_then(|v| v.as_str()),
+            Some(OPENCODE_AGENT_NAME)
+        );
+        assert_eq!(
+            parsed
+                .get("agent")
+                .and_then(|v| v.get(OPENCODE_AGENT_NAME))
+                .and_then(|v| v.get("prompt"))
+                .and_then(|v| v.as_str()),
+            Some(AI_SYSTEM_PROMPT)
+        );
+    }
+
+    #[test]
+    fn test_opencode_permission_config_allows_all() {
+        let parsed: Value = serde_json::from_str(OPENCODE_PERMISSION_CONFIG).unwrap();
+        assert_eq!(parsed.get("*").and_then(|v| v.as_str()), Some("allow"));
     }
 
     // ========== ClaudeResponse tests ==========
@@ -1013,6 +1092,40 @@ mod tests {
         match parse_stream_message(&json) {
             Some(StreamMessage::Error { message }) => assert_eq!(message, "permission denied"),
             _ => panic!("Expected OpenCode Error message"),
+        }
+    }
+
+    #[test]
+    fn test_parse_stream_message_opencode_error_nested_data_message() {
+        let json: Value = serde_json::from_str(
+            r#"{"type":"error","error":{"name":"UnknownError","data":{"message":"Model not found: openai-codex/gpt-5.2."}}}"#
+        ).unwrap();
+
+        match parse_stream_message(&json) {
+            Some(StreamMessage::Error { message }) => {
+                assert_eq!(message, "Model not found: openai-codex/gpt-5.2.")
+            }
+            _ => panic!("Expected OpenCode nested error message"),
+        }
+    }
+
+    #[test]
+    fn test_is_model_not_found_error() {
+        assert!(is_model_not_found_error("Model not found: openai-codex/gpt-5.2."));
+        assert!(is_model_not_found_error("unknown model: foo/bar"));
+        assert!(is_model_not_found_error("INVALID MODEL"));
+        assert!(!is_model_not_found_error("permission denied"));
+    }
+
+    #[test]
+    fn test_parse_stream_message_top_level_message_error() {
+        let json: Value = serde_json::from_str(
+            r#"{"type":"error","message":"authentication failed"}"#
+        ).unwrap();
+
+        match parse_stream_message(&json) {
+            Some(StreamMessage::Error { message }) => assert_eq!(message, "authentication failed"),
+            _ => panic!("Expected top-level error message"),
         }
     }
 }
