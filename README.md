@@ -82,11 +82,14 @@ For detailed usage guide, keyboard shortcuts, and tutorials:
 
 MIT License
 
-## Author
+## Attribution
 
-cokac <monogatree@gmail.com>
+This repository is based on [cokacdir](https://github.com/kstost/cokacdir) (MIT License) by:
 
-Homepage: https://opendir.cokac.com
+- Original author: **cokac** (`monogatree@gmail.com`)
+- Original homepage: https://cokacdir.cokac.com
+
+Original credits and attribution information are kept in `NOTICE`.
 
 ## Disclaimer
 
